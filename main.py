@@ -1,6 +1,2 @@
-def main():
-    print("Hello from python-library-test!")
-
-
-if __name__ == "__main__":
-    main()
+def super_cool_function() -> str:
+    return "This is a super cool function!"
