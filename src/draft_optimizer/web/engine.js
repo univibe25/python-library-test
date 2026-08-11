@@ -27,11 +27,19 @@
     return round % 2 === 0 ? idx : teams - 1 - idx;
   }
 
-  function nextPickForTeam(team, fromPick, teams, totalPicks) {
+  // `consumed` (optional): Set of overall pick indices already spoken for by
+  // keepers — those picks can't be used, so skip them when planning.
+  function nextPickForTeam(team, fromPick, teams, totalPicks, consumed) {
     for (var p = fromPick; p < totalPicks; p++) {
-      if (teamOnClock(p, teams) === team) return p;
+      if (teamOnClock(p, teams) === team && !(consumed && consumed.has(p))) return p;
     }
     return null;
+  }
+
+  // Overall pick index (0-based) belonging to a slot in a 1-based round.
+  function pickIndexFor(slot, round, teams) {
+    var inRound = round % 2 === 1 ? slot : teams - 1 - slot;
+    return (round - 1) * teams + inRound;
   }
 
   // ---------- pool preparation ----------
@@ -183,16 +191,18 @@
     var totalPicks = teams * config.rounds;
     var roster = config.roster;
     var currentPick = ctx.currentPick; // 0-based
+    var consumed = ctx.consumed || null; // keeper-consumed pick indices
     var pickNumber = currentPick + 1; // 1-based, comparable to ADP
     var round = Math.floor(currentPick / teams) + 1;
 
-    var myNext = nextPickForTeam(config.mySlot, currentPick + 1, teams, totalPicks);
+    var myNext = nextPickForTeam(config.mySlot, currentPick + 1, teams, totalPicks, consumed);
     var myNextNumber = myNext == null ? totalPicks + teams : myNext + 1;
 
     // How many picks I still have, counting this one.
     var myRemaining = 0;
     for (var p = currentPick; p < totalPicks; p++) {
-      if (teamOnClock(p, teams) === config.mySlot) myRemaining += 1;
+      if (teamOnClock(p, teams) === config.mySlot && !(consumed && consumed.has(p)))
+        myRemaining += 1;
     }
 
     var available = pool.filter(function (pl) {
@@ -456,15 +466,50 @@
     };
   }
 
+  // ---------- keepers ----------
+
+  /**
+   * Is keeping `player` at the cost of your pick in `round` (the round he was
+   * drafted in last season) better than drafting fresh at that slot?
+   *
+   * Compares the player's VOR against the best VOR you could likely get with
+   * that pick anyway (best available player whose ADP says he survives to it).
+   */
+  function evaluateKeeper(pool, config, player, round) {
+    var pickIdx = pickIndexFor(config.mySlot, round, config.teams);
+    var pickNumber = pickIdx + 1;
+    // Best value the market expects to still be on the board at that pick.
+    // Keepers league-wide remove players roughly evenly, so raw ADP stays a
+    // fair proxy for who's left.
+    var bestAlt = null;
+    pool.forEach(function (p) {
+      if (p.id === player.id) return;
+      var adp = p.estAdp != null ? p.estAdp : p.rank * 1.1;
+      if (adp >= pickNumber - 2 && (bestAlt == null || p.vor > bestAlt.vor)) bestAlt = p;
+    });
+    var altVor = bestAlt ? bestAlt.vor : 0;
+    var surplus = Math.round((player.vor - altVor) * 10) / 10;
+    var verdict = surplus > 5 ? "KEEP" : surplus < -5 ? "PASS" : "TOSS-UP";
+    return {
+      pickNumber: pickNumber,
+      round: round,
+      surplus: surplus,
+      verdict: verdict,
+      alternative: bestAlt,
+    };
+  }
+
   var DraftEngine = {
     teamOnClock: teamOnClock,
     nextPickForTeam: nextPickForTeam,
+    pickIndexFor: pickIndexFor,
     replacementRanks: replacementRanks,
     resolveAdp: resolveAdp,
     buildPool: buildPool,
     rosterNeeds: rosterNeeds,
     pGoneBy: pGoneBy,
     recommend: recommend,
+    evaluateKeeper: evaluateKeeper,
   };
 
   if (typeof module !== "undefined" && module.exports) module.exports = DraftEngine;

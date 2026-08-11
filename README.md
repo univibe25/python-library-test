@@ -40,6 +40,23 @@ free public endpoints.
    **Resume Saved Draft** to continue. **Export** downloads the full pick log
    as JSON.
 
+### Keepers
+
+If your league lets teams keep players from last season (each keeper costing
+that team's pick from the round he was drafted in), open **Keepers** on the
+setup screen:
+
+- Add each keeper as *team + player + round it costs* — yours and any rivals'
+  keepers you know about (up to 2 per team).
+- For **your** candidates you get an instant verdict: **KEEP** (beats the best
+  player you'd likely draft fresh at that slot, with the surplus in projected
+  points), **PASS**, or **TOSS-UP** — plus an overall "keep 0/1/2" call, so
+  you can decide before locking anything in.
+- During the draft, kept players are off the board from pick one (tagged
+  KEPT), and when the draft reaches a keeper's round, that pick auto-fills
+  and the assistant plans around it — e.g. if your round-3 pick is spent on a
+  keeper, "your next pick" and all wait-on-him math skip straight to round 4.
+
 ## How the recommendations work
 
 The engine encodes the consensus of the draft-strategy research baked into

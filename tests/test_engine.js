@@ -123,5 +123,40 @@ check("QB1 not before round 4", qbIdx >= 3, `round ${qbIdx + 1}`);
 const starters = E.rosterNeeds(mine, config.roster);
 check("all starter slots filled", starters.starterGaps === 0, JSON.stringify(starters.need));
 
+// --- keepers ---
+check("pickIndexFor r1 slot4", E.pickIndexFor(4, 1, 10) === 4);
+check("pickIndexFor r2 snakes", E.pickIndexFor(4, 2, 10) === 15); // 10 + (10-1-4)
+check("pickIndexFor r3", E.pickIndexFor(4, 3, 10) === 24);
+
+// nextPickForTeam skips keeper-consumed picks.
+const consumed = new Set([E.pickIndexFor(4, 2, 10)]);
+check(
+  "next pick skips consumed round",
+  E.nextPickForTeam(4, 5, 10, 150, consumed) === E.pickIndexFor(4, 3, 10)
+);
+
+// recommend() plans around consumed picks: with my round-2 pick consumed, my
+// "next pick" from round 1 should be round 3's.
+const resK = E.recommend(pool, new Set(), [], { currentPick: 4, config, consumed });
+check(
+  "recommend meta uses consumed picks",
+  resK.meta.myNextNumber === E.pickIndexFor(4, 3, 10) + 1,
+  String(resK.meta.myNextNumber)
+);
+check("myRemaining excludes consumed", resK.meta.myRemaining === 14, String(resK.meta.myRemaining));
+
+// evaluateKeeper: a top-5 player kept for a round-10 pick is a screaming KEEP.
+const stud = pool.filter((p) => p.rank <= 5 && (p.pos === "RB" || p.pos === "WR"))[0];
+const evGood = E.evaluateKeeper(pool, config, stud, 10);
+check("stud in round 10 is KEEP", evGood.verdict === "KEEP", JSON.stringify(evGood));
+check("KEEP surplus is large", evGood.surplus > 30, String(evGood.surplus));
+
+// A mid player kept at his market round is roughly a wash or worse: keeping
+// (say) the RB ranked ~60 at a round-2 price should never be a KEEP.
+const midRb = pool.filter((p) => p.pos === "RB" && p.rank >= 55 && p.rank <= 75)[0];
+const evBad = E.evaluateKeeper(pool, config, midRb, 2);
+check("mid RB at round-2 price is not KEEP", evBad.verdict !== "KEEP", JSON.stringify(evBad));
+check("alternative reported", evBad.alternative && evBad.alternative.name.length > 0);
+
 console.log(failures === 0 ? "\nALL TESTS PASSED" : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

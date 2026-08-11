@@ -44,6 +44,23 @@ select, input[type="search"], input[type="text"], input[type="number"] {
 .roster-grid { margin-top: 12px; grid-template-columns: repeat(4, 1fr); }
 .team-names { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; margin-top: 12px; }
 .setup-actions { display: flex; gap: 12px; margin-top: 24px; }
+.keeper-form { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.keeper-form input { flex: 1; min-width: 180px; }
+.keeper-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.keeper-row {
+  display: flex; align-items: center; gap: 10px; background: var(--panel-2);
+  border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; font-size: 13px;
+}
+.keeper-row .who { color: var(--accent-2); min-width: 90px; }
+.keeper-row .rd { color: var(--muted); }
+.keeper-row .verdict { margin-left: auto; font-weight: 700; font-size: 12px; }
+.verdict.KEEP { color: var(--accent); }
+.verdict.PASS { color: var(--danger); }
+.verdict.TOSS-UP, .verdict.TOSSUP { color: var(--warn); }
+.keeper-row .rm { background: none; border: 0; color: var(--muted); font-size: 15px; }
+.keeper-row .rm:hover { color: var(--danger); }
+.keeper-advice { margin-top: 10px; font-size: 12.5px; color: var(--muted); }
+.keeper-tag { color: var(--warn); font-size: 11px; font-weight: 700; margin-left: 6px; }
 .data-note { color: var(--muted); font-size: 12px; margin: 16px 0 0; }
 
 .btn {

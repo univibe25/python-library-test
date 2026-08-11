@@ -44,6 +44,19 @@
       <div id="team-names" class="team-names"></div>
     </details>
 
+    <details class="roster-details" id="keepers-details">
+      <summary>Keepers (optional) — each keeper costs that team's pick from the round he was drafted in last season</summary>
+      <div class="keeper-form">
+        <select id="keeper-team"></select>
+        <input type="text" id="keeper-player" list="keeper-player-list" placeholder="Type a player…" autocomplete="off">
+        <datalist id="keeper-player-list"></datalist>
+        <select id="keeper-round"></select>
+        <button class="btn" id="keeper-add">Add keeper</button>
+      </div>
+      <div id="keeper-list" class="keeper-list"></div>
+      <div id="keeper-advice" class="keeper-advice"></div>
+    </details>
+
     <div class="setup-actions">
       <button id="btn-start" class="btn primary big">Start Draft</button>
       <button id="btn-resume" class="btn big" hidden>Resume Saved Draft</button>

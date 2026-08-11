@@ -21,6 +21,9 @@
     teamsTab: "rosters",
     openTeams: {},
   };
+  // Keepers being configured on the setup screen: [{team, playerId, name, pos, round}]
+  var setupKeepers = [];
+  var setupData = null; // raw data file for the currently selected scoring
 
   var $ = function (sel) { return document.querySelector(sel); };
   var $$ = function (sel) { return Array.prototype.slice.call(document.querySelectorAll(sel)); };
@@ -64,10 +67,40 @@
     state.picks.forEach(function (p) { s.add(p.playerId); });
     return s;
   }
-  function teamPlayers(team) {
-    return state.picks
+  function keepers() {
+    return (state.config && state.config.keepers) || [];
+  }
+  // Keeper players whose round hasn't been reached yet: off the board for
+  // everyone, but already belong to their team.
+  function pendingKeepers() {
+    var drafted = draftedIds();
+    return keepers().filter(function (k) {
+      return state.poolById[k.playerId] && !drafted.has(k.playerId);
+    });
+  }
+  function unavailableIds() {
+    var s = draftedIds();
+    pendingKeepers().forEach(function (k) { s.add(k.playerId); });
+    return s;
+  }
+  // Overall pick indices consumed by keepers (any team).
+  function consumedSet() {
+    var s = new Set();
+    keepers().forEach(function (k) {
+      s.add(E.pickIndexFor(k.team, k.round, state.config.teams));
+    });
+    return s;
+  }
+  function teamPlayers(team, includePending) {
+    var players = state.picks
       .filter(function (p) { return p.team === team; })
       .map(function (p) { return state.poolById[p.playerId]; });
+    if (includePending) {
+      pendingKeepers().forEach(function (k) {
+        if (k.team === team) players.push(state.poolById[k.playerId]);
+      });
+    }
+    return players;
   }
   function currentPick() { return state.picks.length; }
   function totalPicks() { return state.config.teams * state.config.rounds; }
@@ -148,6 +181,7 @@
     });
 
     $("#btn-start").addEventListener("click", startDraft);
+    initKeeperSetup();
 
     var saved = loadSaved();
     if (saved && saved.config && saved.picks) {
@@ -158,15 +192,186 @@
       btn.addEventListener("click", function () { resumeDraft(saved); });
     }
 
-    // Show data freshness on the setup screen.
+    reloadSetupData();
+    $("#cfg-scoring").addEventListener("change", reloadSetupData);
+  }
+
+  function reloadSetupData() {
     loadData($("#cfg-scoring").value).then(function (d) {
       state.dataMeta = d;
+      // Re-point existing keepers at the new dataset by name + position.
+      var byKey = {};
+      d.players.forEach(function (p) { byKey[p.name + "|" + p.pos] = p; });
+      setupKeepers = setupKeepers.filter(function (k) {
+        var p = byKey[k.name + "|" + k.pos];
+        if (p) k.playerId = p.id;
+        return !!p;
+      });
+      setupData = d;
+      refreshKeeperControls();
       $("#data-note").textContent =
         d.players.length + " players loaded · " + d.season + " season · rankings " +
         "FantasyPros consensus · projections Sleeper · ADP FantasyFootballCalculator · updated " +
         d.updated.slice(0, 10);
     }).catch(function (err) {
       $("#data-note").textContent = "⚠ " + err.message + " — run `draft-optimizer update-data`";
+    });
+  }
+
+  // ---------- keeper setup ----------
+
+  function setupFormConfig() {
+    return {
+      scoring: $("#cfg-scoring").value,
+      teams: parseInt($("#cfg-teams").value, 10),
+      mySlot: parseInt($("#cfg-slot").value, 10) - 1,
+      rounds: parseInt($("#cfg-rounds").value, 10),
+      roster: rosterFromInputs(),
+    };
+  }
+
+  var setupPoolCache = { key: null, pool: null, byId: null };
+  function setupPool() {
+    if (!setupData) return null;
+    var cfg = setupFormConfig();
+    var key = cfg.scoring + "|" + cfg.teams;
+    if (setupPoolCache.key !== key) {
+      var pool = E.buildPool(setupData.players, cfg);
+      var byId = {};
+      pool.forEach(function (p) { byId[p.id] = p; });
+      setupPoolCache = { key: key, pool: pool, byId: byId };
+    }
+    return setupPoolCache;
+  }
+
+  function keeperOptionLabel(p) {
+    return p.name + " (" + p.pos + (p.team ? " " + p.team : "") + ")";
+  }
+
+  function refreshKeeperControls() {
+    var n = parseInt($("#cfg-teams").value, 10);
+    var mySlot = parseInt($("#cfg-slot").value, 10) - 1;
+    $("#keeper-team").innerHTML = range(0, n - 1)
+      .map(function (i) {
+        var names = $$("#team-names input");
+        var nm = (names[i] && names[i].value.trim()) || "Team " + (i + 1);
+        return "<option value='" + i + "'" + (i === mySlot ? " selected" : "") + ">" +
+          esc(nm) + (i === mySlot ? " (you)" : "") + "</option>";
+      })
+      .join("");
+    var rounds = parseInt($("#cfg-rounds").value, 10);
+    $("#keeper-round").innerHTML = range(1, rounds)
+      .map(function (r) { return "<option value='" + r + "'>Round " + r + "</option>"; })
+      .join("");
+    var sp = setupPool();
+    if (sp) {
+      $("#keeper-player-list").innerHTML = sp.pool
+        .slice()
+        .sort(function (a, b) { return a.rank - b.rank; })
+        .slice(0, 400)
+        .map(function (p) { return "<option value='" + esc(keeperOptionLabel(p)) + "'>"; })
+        .join("");
+    }
+    // Drop keepers pointing at teams that no longer exist.
+    setupKeepers = setupKeepers.filter(function (k) { return k.team < n && k.round <= rounds; });
+    renderKeeperList();
+  }
+
+  function renderKeeperList() {
+    var wrap = $("#keeper-list");
+    var advice = $("#keeper-advice");
+    var sp = setupPool();
+    var cfg = setupFormConfig();
+    wrap.innerHTML = setupKeepers
+      .map(function (k, i) {
+        var names = $$("#team-names input");
+        var nm = (names[k.team] && names[k.team].value.trim()) || "Team " + (k.team + 1);
+        var verdictHtml = "";
+        if (sp && k.team === cfg.mySlot) {
+          var p = sp.byId[k.playerId];
+          if (p) {
+            var ev = E.evaluateKeeper(sp.pool, cfg, p, k.round);
+            var word = ev.verdict === "TOSS-UP" ? "TOSSUP" : ev.verdict;
+            verdictHtml =
+              "<span class='verdict " + word + "' title='" +
+              esc(
+                ev.surplus >= 0
+                  ? "Worth ~" + ev.surplus + " pts more than drafting fresh at pick #" + ev.pickNumber +
+                    (ev.alternative ? " (best likely alternative: " + ev.alternative.name + ")" : "")
+                  : "Drafting fresh at pick #" + ev.pickNumber + " projects ~" + Math.abs(ev.surplus) +
+                    " pts better" + (ev.alternative ? " (e.g. " + ev.alternative.name + ")" : "")
+              ) +
+              "'>" + ev.verdict + (ev.surplus >= 0 ? " +" : " ") + ev.surplus + "</span>";
+          }
+        }
+        return (
+          "<div class='keeper-row'><span class='who'>" + esc(nm) + "</span>" +
+          "<span>" + esc(k.name) + " <span class='rd'>(" + k.pos + ")</span></span>" +
+          "<span class='rd'>costs round " + k.round + "</span>" +
+          verdictHtml +
+          "<button class='rm' data-i='" + i + "' title='Remove'>✕</button></div>"
+        );
+      })
+      .join("");
+    $$("#keeper-list .rm").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        setupKeepers.splice(parseInt(btn.getAttribute("data-i"), 10), 1);
+        renderKeeperList();
+      });
+    });
+
+    // Overall keep-0/1/2 advice for my team.
+    var mine = setupKeepers.filter(function (k) { return k.team === cfg.mySlot; });
+    if (!sp || !mine.length) {
+      advice.textContent = mine.length
+        ? ""
+        : "Add your keeper candidates (and any rivals' keepers you know about) — you'll get a KEEP / PASS verdict for each of yours.";
+      return;
+    }
+    var evaluated = mine
+      .map(function (k) {
+        var p = sp.byId[k.playerId];
+        return p ? { k: k, ev: E.evaluateKeeper(sp.pool, cfg, p, k.round) } : null;
+      })
+      .filter(Boolean);
+    var worth = evaluated.filter(function (x) { return x.ev.surplus > 0; });
+    advice.textContent =
+      worth.length === 0
+        ? "Verdict: keep 0 — you project better drafting fresh in those rounds."
+        : "Verdict: keep " + Math.min(2, worth.length) + " — " +
+          worth
+            .sort(function (a, b) { return b.ev.surplus - a.ev.surplus; })
+            .slice(0, 2)
+            .map(function (x) { return x.k.name + " (+" + x.ev.surplus + " pts)"; })
+            .join(", ") + ". Remove the ones marked PASS before starting.";
+  }
+
+  function initKeeperSetup() {
+    $("#keeper-add").addEventListener("click", function () {
+      var sp = setupPool();
+      if (!sp) return;
+      var text = $("#keeper-player").value.trim();
+      var player = sp.pool.find(function (p) {
+        return keeperOptionLabel(p) === text || p.name.toLowerCase() === text.toLowerCase();
+      });
+      if (!player) { alert("Pick a player from the suggestions."); return; }
+      var team = parseInt($("#keeper-team").value, 10);
+      var round = parseInt($("#keeper-round").value, 10);
+      if (setupKeepers.some(function (k) { return k.playerId === player.id; })) {
+        alert(player.name + " is already a keeper."); return;
+      }
+      if (setupKeepers.filter(function (k) { return k.team === team; }).length >= 2) {
+        alert("That team already has 2 keepers (league max)."); return;
+      }
+      if (setupKeepers.some(function (k) { return k.team === team && k.round === round; })) {
+        alert("That team already has a keeper costing round " + round + "."); return;
+      }
+      setupKeepers.push({ team: team, playerId: player.id, name: player.name, pos: player.pos, round: round });
+      $("#keeper-player").value = "";
+      renderKeeperList();
+    });
+    ["cfg-teams", "cfg-slot", "cfg-rounds"].forEach(function (id) {
+      $("#" + id).addEventListener("change", refreshKeeperControls);
     });
   }
 
@@ -180,6 +385,9 @@
       roster: rosterFromInputs(),
       teamNames: $$("#team-names input").map(function (el, i) {
         return el.value.trim() || "Team " + (i + 1);
+      }),
+      keepers: setupKeepers.map(function (k) {
+        return { team: k.team, playerId: k.playerId, round: k.round };
       }),
     };
     beginDraft(config, []);
@@ -196,6 +404,11 @@
       state.pool = E.buildPool(data.players, config);
       state.poolById = {};
       state.pool.forEach(function (p) { state.poolById[p.id] = p; });
+      // Drop keepers whose player id no longer resolves (e.g. stale save).
+      config.keepers = (config.keepers || []).filter(function (k) {
+        return state.poolById[k.playerId];
+      });
+      autoApplyKeepers();
       save();
       $("#setup-screen").hidden = true;
       $("#draft-screen").hidden = false;
@@ -208,16 +421,37 @@
 
   // ---------- picks ----------
 
+  // When the draft reaches a pick that a keeper consumes, fill it in
+  // automatically. Runs until the next open (human) pick.
+  function autoApplyKeepers() {
+    var applied = [];
+    while (!draftOver()) {
+      var pick = currentPick();
+      var round = Math.floor(pick / state.config.teams) + 1;
+      var team = onClock();
+      var keeper = keepers().find(function (k) {
+        return k.team === team && k.round === round && !draftedIds().has(k.playerId);
+      });
+      if (!keeper) break;
+      state.picks.push({ playerId: keeper.playerId, team: team, auto: true });
+      applied.push(keeper);
+    }
+    return applied;
+  }
+
   function draftPlayer(playerId) {
     if (draftOver()) return;
     var player = state.poolById[playerId];
-    if (!player || draftedIds().has(playerId)) return;
+    if (!player || unavailableIds().has(playerId)) return;
     var team = onClock();
     state.picks.push({ playerId: playerId, team: team });
+    var pickNo = state.picks.length;
+    var auto = autoApplyKeepers();
     save();
     toast(
-      "Pick " + state.picks.length + ": " + player.name + " → " + teamName(team) +
-      (team === state.config.mySlot ? " (you)" : "")
+      "Pick " + pickNo + ": " + player.name + " → " + teamName(team) +
+      (team === state.config.mySlot ? " (you)" : "") +
+      (auto.length ? " · keeper pick" + (auto.length > 1 ? "s" : "") + " auto-filled" : "")
     );
     ui.search = "";
     $("#search").value = "";
@@ -225,7 +459,9 @@
   }
 
   function undo() {
-    if (!state.picks.length) return;
+    // Roll back any auto-filled keeper picks, then one human pick.
+    while (state.picks.length && state.picks[state.picks.length - 1].auto) state.picks.pop();
+    if (!state.picks.length) { render(); return; }
     var last = state.picks.pop();
     save();
     toast("Undid: " + state.poolById[last.playerId].name + " (was " + teamName(last.team) + ")");
@@ -272,7 +508,7 @@
     clockEl.textContent = "On the clock: " + teamName(team) + (team === cfg.mySlot ? " — YOU" : "");
     clockEl.classList.toggle("me", team === cfg.mySlot);
 
-    var myNext = E.nextPickForTeam(cfg.mySlot, pick, cfg.teams, totalPicks());
+    var myNext = E.nextPickForTeam(cfg.mySlot, pick, cfg.teams, totalPicks(), consumedSet());
     $("#my-next").textContent =
       myNext === null ? "You have no picks left" :
       myNext === pick ? "" :
@@ -285,9 +521,10 @@
     // the perspective of my next pick.
     var pick = currentPick();
     var cfg = state.config;
-    if (isMyTurn()) return { currentPick: pick, config: cfg };
-    var myNext = E.nextPickForTeam(cfg.mySlot, pick, cfg.teams, totalPicks());
-    return myNext === null ? null : { currentPick: myNext, config: cfg };
+    var consumed = consumedSet();
+    if (isMyTurn()) return { currentPick: pick, config: cfg, consumed: consumed };
+    var myNext = E.nextPickForTeam(cfg.mySlot, pick, cfg.teams, totalPicks(), consumed);
+    return myNext === null ? null : { currentPick: myNext, config: cfg, consumed: consumed };
   }
 
   function renderRecommendation() {
@@ -309,7 +546,7 @@
       notesEl.innerHTML = "";
       return;
     }
-    var res = E.recommend(state.pool, draftedIds(), teamPlayers(state.config.mySlot), ctx);
+    var res = E.recommend(state.pool, unavailableIds(), teamPlayers(state.config.mySlot, true), ctx);
     var mine = isMyTurn();
     var top = res.recommendations[0];
     if (!top) {
@@ -371,7 +608,7 @@
   var highlightId = null;
 
   function visiblePlayers() {
-    var drafted = draftedIds();
+    var drafted = unavailableIds();
     var q = ui.search.trim().toLowerCase();
     return state.pool
       .filter(function (p) {
@@ -390,17 +627,22 @@
 
   function renderPool() {
     var drafted = draftedIds();
+    var pendingByPlayer = {};
+    pendingKeepers().forEach(function (k) { pendingByPlayer[k.playerId] = k; });
     var rows = visiblePlayers().slice(0, 200);
     var over = draftOver();
     $("#pool-body").innerHTML = rows
       .map(function (p) {
-        var isDrafted = drafted.has(p.id);
+        var keeper = pendingByPlayer[p.id];
+        var isDrafted = drafted.has(p.id) || !!keeper;
         var cls = (isDrafted ? "drafted" : "") + (p.id === highlightId ? " highlight" : "");
         return (
           "<tr class='" + cls + "' data-id='" + p.id + "'>" +
           "<td>" + (isDrafted || over ? "" : "<button class='pick-btn' data-id='" + p.id + "'>Draft</button>") + "</td>" +
           "<td>" + p.rank + "</td>" +
           "<td><span class='pname'>" + esc(p.name) + "</span><span class='pteam'>" + esc(p.team || "") + "</span>" +
+          (keeper ? "<span class='keeper-tag' title='Keeper — costs " + esc(teamName(keeper.team)) +
+            "’s round-" + keeper.round + " pick'>KEPT</span>" : "") +
           (p.injury ? "<span class='inj'>" + esc(p.injury.slice(0, 3)) + "</span>" : "") + "</td>" +
           "<td><span class='pos-badge pos-" + p.pos + "'>" + (p.pos === "DST" ? "DEF" : p.pos) + "</span></td>" +
           "<td>" + (p.bye || "—") + "</td>" +
@@ -457,7 +699,7 @@
             "<div class='log-item'><span class='log-pick'>" + round + "." +
             (inRound < 10 ? "0" : "") + inRound + "</span>" +
             "<span class='pos-badge pos-" + p.pos + "'>" + (p.pos === "DST" ? "DEF" : p.pos) + "</span> " +
-            "<span>" + esc(p.name) + "</span>" +
+            "<span>" + esc(p.name) + (pk.auto ? "<span class='keeper-tag'>KEEPER</span>" : "") + "</span>" +
             "<span class='log-team'>" + esc(teamName(pk.team)) + "</span></div>"
           );
         })
@@ -467,9 +709,11 @@
     }
 
     var clock = draftOver() ? -1 : onClock();
+    var pendingIds = new Set();
+    pendingKeepers().forEach(function (k) { pendingIds.add(k.playerId); });
     $("#teams-panel").innerHTML = range(0, cfg.teams - 1)
       .map(function (t) {
-        var players = teamPlayers(t);
+        var players = teamPlayers(t, true);
         var isMe = t === cfg.mySlot;
         var open = isMe || ui.openTeams[t];
         var head =
@@ -494,13 +738,16 @@
             var clash = s.player.bye != null && myByes[s.player.pos + "-" + s.player.bye] > 1;
             return (
               "<div class='slot-row'><span class='slot-label'>" + label + "</span>" +
-              "<span>" + esc(s.player.name) + "</span>" +
+              "<span>" + esc(s.player.name) +
+              (pendingIds.has(s.player.id) ? "<span class='keeper-tag'>K</span>" : "") + "</span>" +
               "<span class='slot-bye" + (clash ? " bye-clash" : "") + "'>bye " + (s.player.bye || "?") + (clash ? " ⚠" : "") + "</span></div>"
             );
           }).join("") +
           (asg.bench.length
             ? "<div class='slot-row'><span class='slot-label'>BN</span><span>" +
-              asg.bench.map(function (p) { return esc(p.name); }).join(", ") + "</span></div>"
+              asg.bench.map(function (p) {
+                return esc(p.name) + (pendingIds.has(p.id) ? "<span class='keeper-tag'>K</span>" : "");
+              }).join(", ") + "</span></div>"
             : "") +
           "</div>";
         return "<div class='team-card" + (isMe ? " me" : "") + (t === clock ? " on-clock" : "") + "'>" + head + body + "</div>";
@@ -562,7 +809,8 @@
     });
     $("#search").addEventListener("keydown", function (ev) {
       if (ev.key === "Enter") {
-        var first = visiblePlayers().filter(function (p) { return !draftedIds().has(p.id); })[0];
+        var blocked = unavailableIds();
+        var first = visiblePlayers().filter(function (p) { return !blocked.has(p.id); })[0];
         if (first) draftPlayer(first.id);
       }
     });
