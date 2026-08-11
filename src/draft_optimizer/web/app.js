@@ -373,6 +373,29 @@
     ["cfg-teams", "cfg-slot", "cfg-rounds"].forEach(function (id) {
       $("#" + id).addEventListener("change", refreshKeeperControls);
     });
+    // Ranked cheat sheet, one row per player in board order. The first
+    // column is the player name so the CSV drops straight into the Yahoo
+    // pre-draft rankings import Chrome extension.
+    $("#btn-rankings").addEventListener("click", function () {
+      var sp = setupPool();
+      if (!sp) { alert("Player data is still loading."); return; }
+      var cfg = setupFormConfig();
+      var lines = ["player,rank,position,nfl_team,bye,proj_points,vor,adp,tier"];
+      sp.pool
+        .slice()
+        .sort(function (a, b) { return a.rank - b.rank; })
+        .slice(0, 300)
+        .forEach(function (p) {
+          lines.push([
+            csvCell(p.name), p.rank, p.pos === "DST" ? "DEF" : p.pos,
+            p.team || "", p.bye || "", p.points != null ? p.points : "",
+            p.vor != null ? p.vor : "",
+            p.estAdp != null ? p.estAdp.toFixed(1) : "", p.tier || "",
+          ].join(","));
+        });
+      downloadFile("rankings-" + cfg.scoring + "-" + new Date().toISOString().slice(0, 10) + ".csv",
+        "text/csv", lines.join("\n") + "\n");
+    });
   }
 
   function startDraft() {
@@ -908,6 +931,29 @@
       "text/csv", lines.join("\n") + "\n");
   }
 
+  // Team-by-team roster sheet in the same order Yahoo's commissioner
+  // "Submit Draft Results" flow asks for players (it fills each team's
+  // roster in turn — it does NOT replay pick-by-pick).
+  function exportYahooSheet() {
+    var cfg = state.config;
+    var lines = ["fantasy_team,entry_order,player,position,nfl_team,round_drafted,keeper"];
+    range(0, cfg.teams - 1).forEach(function (t) {
+      var n = 0;
+      state.picks.forEach(function (pk, i) {
+        if (pk.team !== t) return;
+        var p = state.poolById[pk.playerId];
+        n += 1;
+        lines.push([
+          csvCell(teamName(t)), n, csvCell(p.name),
+          p.pos === "DST" ? "DEF" : p.pos, p.team || "",
+          Math.floor(i / cfg.teams) + 1, pk.auto ? "Y" : "",
+        ].join(","));
+      });
+    });
+    downloadFile("yahoo-entry-sheet-" + new Date().toISOString().slice(0, 10) + ".csv",
+      "text/csv", lines.join("\n") + "\n");
+  }
+
   function exportDraft() {
     var cfg = state.config;
     var out = {
@@ -940,6 +986,7 @@
     $("#btn-back").addEventListener("click", hideResults);
     $("#btn-export2").addEventListener("click", exportDraft);
     $("#btn-csv").addEventListener("click", exportCsv);
+    $("#btn-yahoo").addEventListener("click", exportYahooSheet);
     $("#btn-restart").addEventListener("click", function () {
       if (confirm("Abandon this draft and return to setup? (The saved draft will be cleared.)")) {
         clearSaved();

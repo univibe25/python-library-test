@@ -70,6 +70,27 @@ the top bar any time):
 
 ![recap](docs/recap.png)
 
+## Getting data into Yahoo
+
+The blunt truth: **Yahoo has no file import anywhere** — no CSV upload for
+draft results, no API write for drafts (the Fantasy Sports API's
+`draft_results` endpoint is read-only), and no import for pre-draft
+rankings. Three flows exist, and the app supports all of them:
+
+1. **Live Yahoo draft (most common)** — nothing to import. Run this app in a
+   second window next to the Yahoo draft room, mirror every pick as it
+   happens, and make the pick Yahoo-side that the app tells you.
+2. **Offline draft** — if your league drafts in person, the commissioner
+   enters results afterward via *Commissioner → Draft & Keepers → Submit
+   Draft Results*, which fills **each team's roster in turn** (not
+   pick-by-pick). The recap's **Yahoo entry sheet** export produces a CSV in
+   exactly that team-by-team order, so entry is just reading down the sheet.
+3. **Pre-draft rankings** — Yahoo only supports drag-and-drop reordering
+   natively, but the free ["Custom Player Rankings Import Tool"](https://chromewebstore.google.com/detail/custom-player-rankings-im/ploohkkaccmkhohmkeoamlbmmenhkdge)
+   Chrome extension imports a CSV whose first column is player names. The
+   setup screen's **Rankings CSV** button exports the board in that format
+   (set Yahoo's pre-rank page to "Top 300" before running the import).
+
 ## How the recommendations work
 
 The engine encodes the consensus of the draft-strategy research baked into
