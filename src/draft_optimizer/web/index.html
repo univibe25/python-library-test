@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Draft Command</title>
+<link rel="stylesheet" href="styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏈</text></svg>">
+</head>
+<body>
+
+<!-- ===================== SETUP ===================== -->
+<section id="setup-screen" class="screen">
+  <div class="setup-card">
+    <h1>🏈 Draft Command</h1>
+    <p class="sub">Live draft assistant — it tells you exactly who to pick.</p>
+
+    <div class="setup-grid">
+      <label>Scoring
+        <select id="cfg-scoring">
+          <option value="half" selected>Half PPR (Yahoo default)</option>
+          <option value="ppr">Full PPR</option>
+          <option value="std">Standard</option>
+        </select>
+      </label>
+      <label>Teams
+        <select id="cfg-teams"></select>
+      </label>
+      <label>Your draft slot
+        <select id="cfg-slot"></select>
+      </label>
+      <label>Rounds
+        <select id="cfg-rounds"></select>
+      </label>
+    </div>
+
+    <details class="roster-details">
+      <summary>Roster slots (Yahoo default: 1 QB, 2 RB, 2 WR, 1 TE, 1 FLEX, 1 K, 1 DEF, 6 bench)</summary>
+      <div class="setup-grid roster-grid" id="roster-grid"></div>
+    </details>
+
+    <details class="roster-details" id="team-names-details">
+      <summary>Team names (optional)</summary>
+      <div id="team-names" class="team-names"></div>
+    </details>
+
+    <div class="setup-actions">
+      <button id="btn-start" class="btn primary big">Start Draft</button>
+      <button id="btn-resume" class="btn big" hidden>Resume Saved Draft</button>
+    </div>
+    <p class="data-note" id="data-note"></p>
+  </div>
+</section>
+
+<!-- ===================== DRAFT ===================== -->
+<section id="draft-screen" class="screen" hidden>
+  <header class="topbar">
+    <div class="topbar-left">
+      <span class="brand">🏈</span>
+      <div class="clock">
+        <div id="clock-pick" class="clock-pick">Round 1 · Pick 1</div>
+        <div id="clock-team" class="clock-team"></div>
+      </div>
+    </div>
+    <div id="my-next" class="my-next"></div>
+    <div class="topbar-actions">
+      <button id="btn-undo" class="btn" title="Undo last pick">↩ Undo</button>
+      <button id="btn-export" class="btn" title="Download draft as JSON">Export</button>
+      <button id="btn-restart" class="btn danger" title="Abandon draft and return to setup">Reset</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- Recommendation column -->
+    <div class="col col-rec">
+      <div id="rec-card" class="rec-card"></div>
+      <div id="rec-alts" class="rec-alts"></div>
+      <div id="rec-notes" class="rec-notes"></div>
+    </div>
+
+    <!-- Player pool column -->
+    <div class="col col-pool">
+      <div class="pool-controls">
+        <input id="search" type="search" placeholder="Search player or team… (press / to focus)" autocomplete="off">
+        <div class="pos-tabs" id="pos-tabs">
+          <button data-pos="ALL" class="active">All</button>
+          <button data-pos="QB">QB</button>
+          <button data-pos="RB">RB</button>
+          <button data-pos="WR">WR</button>
+          <button data-pos="TE">TE</button>
+          <button data-pos="FLEX">FLX</button>
+          <button data-pos="K">K</button>
+          <button data-pos="DST">DEF</button>
+        </div>
+        <label class="chk"><input type="checkbox" id="show-drafted"> show drafted</label>
+      </div>
+      <div class="pool-table-wrap">
+        <table class="pool-table">
+          <thead>
+            <tr><th></th><th>Rank</th><th>Player</th><th>Pos</th><th>Bye</th><th>Proj</th><th>VOR</th><th>ADP</th><th>Tier</th></tr>
+          </thead>
+          <tbody id="pool-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Teams column -->
+    <div class="col col-teams">
+      <div class="teams-header">
+        <h3>Teams</h3>
+        <div class="log-toggle">
+          <button id="tab-rosters" class="active">Rosters</button>
+          <button id="tab-log">Pick Log</button>
+        </div>
+      </div>
+      <div id="teams-panel"></div>
+      <div id="log-panel" hidden></div>
+    </div>
+  </main>
+</section>
+
+<script src="engine.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

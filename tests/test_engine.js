@@ -1,0 +1,127 @@
+// Engine sanity tests, run with: node tests/test_engine.js
+const path = require("path");
+const fs = require("fs");
+const E = require("../src/draft_optimizer/web/engine.js");
+
+let failures = 0;
+function check(name, cond, detail) {
+  if (cond) console.log("ok  " + name);
+  else {
+    failures += 1;
+    console.error("FAIL " + name + (detail ? " — " + detail : ""));
+  }
+}
+
+// --- snake math ---
+check("snake r1 pick1 -> team 0", E.teamOnClock(0, 10) === 0);
+check("snake r1 pick10 -> team 9", E.teamOnClock(9, 10) === 9);
+check("snake r2 pick11 -> team 9", E.teamOnClock(10, 10) === 9);
+check("snake r2 pick20 -> team 0", E.teamOnClock(19, 10) === 0);
+check("next pick slot0 after 0 is 19", E.nextPickForTeam(0, 1, 10, 150) === 19);
+
+// --- replacement ranks match research heuristics ---
+const r10 = E.replacementRanks(10);
+check("10-team QB repl ~12", r10.QB === 12);
+check("10-team RB repl ~29", r10.RB === 29, String(r10.RB));
+const r12 = E.replacementRanks(12);
+check("12-team RB repl ~34", r12.RB === 34, String(r12.RB));
+
+// --- real data ---
+const data = JSON.parse(
+  fs.readFileSync(path.join(__dirname, "../src/draft_optimizer/web/data/players-half.json"))
+);
+const config = {
+  teams: 10,
+  rounds: 15,
+  mySlot: 4, // 0-based -> pick 5
+  scoring: "half",
+  roster: { QB: 1, RB: 2, WR: 2, TE: 1, FLEX: 1, K: 1, DST: 1, BN: 6 },
+};
+const pool = E.buildPool(data.players, config);
+check("pool has 200+ players", pool.length > 200);
+check("all top-100 have points", pool.filter((p) => p.rank <= 100).every((p) => p.points > 0));
+const top = pool.find((p) => p.rank === 1);
+check("top player has positive VOR", top.vor > 50, `vor=${top.vor}`);
+check("top player has ADP", top.estAdp != null && top.estAdp < 5, `adp=${top.estAdp}`);
+
+// --- round 1: should recommend an elite RB/WR, never K/DST/QB-late ---
+let res = E.recommend(pool, new Set(), [], { currentPick: 4, config });
+const best = res.recommendations[0].player;
+check("round 1 recommends RB or WR", best.pos === "RB" || best.pos === "WR", best.pos + " " + best.name);
+check("round 1 rec is a top-8 rank", best.rank <= 8, `rank=${best.rank}`);
+check(
+  "no K/DST in early recommendations",
+  res.recommendations.every((r) => r.player.pos !== "K" && r.player.pos !== "DST")
+);
+check("has reasons", res.recommendations[0].reasons.length > 0);
+
+// --- simulate a full 10-team draft where 9 opponents pick by ADP/rank ---
+function bestByMarket(available) {
+  let b = null;
+  for (const p of available) {
+    const price = p.estAdp != null ? p.estAdp : p.rank + 15;
+    if (b === null || price < b.price) b = { p, price };
+  }
+  return b.p;
+}
+const drafted = new Set();
+const rosters = Array.from({ length: 10 }, () => []);
+const totalPicks = 150;
+for (let pick = 0; pick < totalPicks; pick++) {
+  const team = E.teamOnClock(pick, 10);
+  const available = pool.filter((p) => !drafted.has(p.id));
+  let choice;
+  if (team === config.mySlot) {
+    const r = E.recommend(pool, drafted, rosters[team], { currentPick: pick, config });
+    check(`pick ${pick + 1}: engine returned a recommendation`, r.recommendations.length > 0);
+    if (!r.recommendations.length) break;
+    choice = r.recommendations[0].player;
+  } else {
+    // Opponents draft roughly by market with light positional sanity:
+    // no 2nd K/DST, no 3rd QB/TE, K/DST only late.
+    const round = Math.floor(pick / 10) + 1;
+    const teamPos = (pos) => rosters[team].filter((x) => x.pos === pos).length;
+    const ok = available.filter((p) => {
+      if ((p.pos === "K" || p.pos === "DST") && (round < 13 || teamPos(p.pos) >= 1)) return false;
+      if (p.pos === "QB" && teamPos("QB") >= 2) return false;
+      if (p.pos === "TE" && teamPos("TE") >= 2) return false;
+      return rosters[team].length < 15;
+    });
+    choice = bestByMarket(ok.length ? ok : available);
+  }
+  drafted.add(choice.id);
+  rosters[team].push(choice);
+}
+
+const mine = rosters[config.mySlot];
+const posCount = (pos) => mine.filter((p) => p.pos === pos).length;
+console.log(
+  "\nMy simulated roster (slot 5 of 10, half-PPR):\n" +
+    mine
+      .map(
+        (p, i) =>
+          `  R${i + 1}  ${p.pos.padEnd(3)} ${p.name} (rank ${p.rank}, ${p.points} pts, bye ${p.bye})`
+      )
+      .join("\n") + "\n"
+);
+check("drafted 15 players", mine.length === 15, String(mine.length));
+check("exactly 1 K", posCount("K") === 1, String(posCount("K")));
+check("exactly 1 DST", posCount("DST") === 1, String(posCount("DST")));
+check("1-2 QB", posCount("QB") >= 1 && posCount("QB") <= 2, String(posCount("QB")));
+check("1-2 TE", posCount("TE") >= 1 && posCount("TE") <= 2, String(posCount("TE")));
+check("4+ RB", posCount("RB") >= 4, String(posCount("RB")));
+check("4+ WR", posCount("WR") >= 4, String(posCount("WR")));
+const kIdx = mine.findIndex((p) => p.pos === "K");
+const dIdx = mine.findIndex((p) => p.pos === "DST");
+check("K drafted in last 3 rounds", kIdx >= 12, `round ${kIdx + 1}`);
+check("DST drafted in last 3 rounds", dIdx >= 12, `round ${dIdx + 1}`);
+const qbIdx = mine.findIndex((p) => p.pos === "QB");
+check("QB1 not before round 4", qbIdx >= 3, `round ${qbIdx + 1}`);
+
+// Starters should out-point a naive best-available-rank strategy? At minimum,
+// total starter points should be substantial.
+const starters = E.rosterNeeds(mine, config.roster);
+check("all starter slots filled", starters.starterGaps === 0, JSON.stringify(starters.need));
+
+console.log(failures === 0 ? "\nALL TESTS PASSED" : `\n${failures} FAILURES`);
+process.exit(failures === 0 ? 0 : 1);

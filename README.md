@@ -1,0 +1,84 @@
+# 🏈 Draft Command — fantasy football live-draft assistant
+
+A local web app that tells you **exactly who to pick next** during your fantasy
+football draft. You enter every pick as it happens (yours and everyone
+else's), and it keeps recomputing the best available pick for your roster,
+your league size, and your draft slot.
+
+![screenshot](docs/screenshot.png)
+
+## Quick start
+
+```bash
+uv run draft-optimizer serve          # starts http://127.0.0.1:8787 and opens a browser
+```
+
+Before draft day, refresh the player data (takes ~30 seconds):
+
+```bash
+uv run draft-optimizer update-data    # refreshes all three scoring formats
+```
+
+No API keys, no accounts — everything runs locally and the data sources are
+free public endpoints.
+
+## Using it during a draft
+
+1. **Setup** — pick your scoring format (half-PPR is the Yahoo default), the
+   number of teams, your draft slot, and (optionally) roster slots and team
+   names. Defaults match a standard Yahoo 10-team league.
+2. **Draft** — the big green card always shows the player to take:
+   - On your turn it says **PICK NOW** with the reasons (value over
+     replacement, tier cliff, "he won't last until your next pick", roster
+     need, bye conflicts).
+   - Between your turns it switches to **PLAN** mode, showing who to target at
+     your next pick given the current board.
+3. **Enter picks fast** — press `/` to jump to search, type a few letters,
+   press **Enter** to draft the top match to whichever team is on the clock.
+   Or click **Draft** on any row. **Undo** (or Ctrl/Cmd-Z) reverses mistakes.
+4. Everything autosaves to your browser — refresh or close the tab and hit
+   **Resume Saved Draft** to continue. **Export** downloads the full pick log
+   as JSON.
+
+## How the recommendations work
+
+The engine encodes the consensus of the draft-strategy research baked into
+this repo (see `src/draft_optimizer/web/engine.js`):
+
+- **Value Over Replacement (VOR)** — a player's worth is his projected points
+  minus the projected points of the replacement-level player at his position
+  for your league size (e.g. ~RB29 in a 10-team league). This is why the app
+  won't take a QB in round 2 even though QBs score the most raw points.
+- **The wait rule** — using live ADP, it estimates whether a player will
+  survive until your next snake pick. Players about to vanish get urgent;
+  players you can get a round later get discounted ("You can wait on TE —
+  Brock Bowers should still be there at pick #25").
+- **Tier cliffs** — takes from the tier that's about to run out when there's a
+  real point drop to the next tier.
+- **Roster gates** — fills starters before bench, opens the QB window around
+  round 6 (earlier only for a fallen elite), holds K/DEF until the final
+  rounds, keeps the bench balanced (~3 RB / 2-3 WR) with upside picks late.
+- **Bye weeks** — a tiebreaker-sized penalty when a pick stacks the same bye
+  at one position (starters' bye clashes are also flagged ⚠ in your roster
+  panel). Never a reason to skip a clearly better player.
+
+## Data sources (fetched by `update-data`)
+
+| What | Source |
+|---|---|
+| Rankings, tiers, byes | FantasyPros expert consensus (aggregates 100+ experts, including Yahoo's rankers) |
+| Season projections, injury flags | Sleeper |
+| ADP per league size | [FantasyFootballCalculator](https://fantasyfootballcalculator.com/adp) live mock drafts |
+
+Data files are baked into `src/draft_optimizer/web/data/` so the app works
+offline; re-run `update-data` any time to refresh.
+
+## Development
+
+```bash
+PYTHONPATH=src python3 -m draft_optimizer.cli serve --no-browser  # run without installing
+node tests/test_engine.js                                         # engine tests + full draft simulation
+```
+
+The stack is deliberately boring: a stdlib-only Python data fetcher and web
+server, plus a dependency-free vanilla-JS single-page app.
