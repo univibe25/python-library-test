@@ -57,6 +57,19 @@ setup screen:
   and the assistant plans around it — e.g. if your round-3 pick is spent on a
   keeper, "your next pick" and all wait-on-him math skip straight to round 4.
 
+### Draft recap & grades
+
+When the last pick is in, a recap opens automatically (or hit **🏆 Recap** in
+the top bar any time):
+
+- Every team ranked and graded **A–F** on projected starting-lineup points
+  relative to the league (bench counts a quarter-weight), with each team's
+  best steal and biggest reach vs ADP.
+- A color-coded **pick-by-pick board** — every pick with projected points and
+  its value vs market (green = got him late, red = reached).
+
+![recap](docs/recap.png)
+
 ## How the recommendations work
 
 The engine encodes the consensus of the draft-strategy research baked into

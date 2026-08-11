@@ -499,6 +499,73 @@
     };
   }
 
+  // ---------- end-of-draft grading ----------
+
+  // Projected points a team gets from its optimal starting lineup.
+  function starterPoints(teamPlayers, rosterConfig) {
+    var used = { QB: 0, RB: 0, WR: 0, TE: 0, K: 0, DST: 0, FLEX: 0 };
+    var starters = 0;
+    var bench = 0;
+    teamPlayers
+      .slice()
+      .sort(function (a, b) { return b.points - a.points; })
+      .forEach(function (p) {
+        if (used[p.pos] < (rosterConfig[p.pos] || 0)) {
+          used[p.pos] += 1;
+          starters += p.points;
+        } else if (FLEX_ELIGIBLE[p.pos] && used.FLEX < (rosterConfig.FLEX || 0)) {
+          used.FLEX += 1;
+          starters += p.points;
+        } else {
+          bench += p.points;
+        }
+      });
+    return { starters: Math.round(starters), bench: Math.round(bench) };
+  }
+
+  /**
+   * Grade every team A-F on projected starter points (bench counts a little),
+   * relative to the rest of the league. Also surfaces each team's best value
+   * pick and biggest reach vs ADP.
+   *
+   * @param teamsPicks array (one entry per team) of {player, pickNumber} lists
+   * @param config     league config
+   */
+  function evaluateTeams(teamsPicks, config) {
+    var rows = teamsPicks.map(function (picks) {
+      var players = picks.map(function (pk) { return pk.player; });
+      var pts = starterPoints(players, config.roster);
+      var quality = pts.starters + 0.25 * pts.bench;
+      var steal = null;
+      var reach = null;
+      picks.forEach(function (pk) {
+        if (pk.player.estAdp == null) return;
+        var delta = pk.player.estAdp - pk.pickNumber; // + = got him later than market
+        if (delta > 0 && (!steal || delta > steal.delta)) steal = { pick: pk, delta: delta };
+        if (delta < 0 && (!reach || delta < reach.delta)) reach = { pick: pk, delta: delta };
+      });
+      return {
+        starterPts: pts.starters,
+        benchPts: pts.bench,
+        quality: quality,
+        steal: steal,
+        reach: reach,
+      };
+    });
+
+    var mean = rows.reduce(function (s, r) { return s + r.quality; }, 0) / (rows.length || 1);
+    var variance =
+      rows.reduce(function (s, r) { return s + Math.pow(r.quality - mean, 2); }, 0) /
+      (rows.length || 1);
+    var sd = Math.sqrt(variance) || 1;
+    rows.forEach(function (r) {
+      var z = (r.quality - mean) / sd;
+      r.z = Math.round(z * 100) / 100;
+      r.grade = z >= 0.9 ? "A" : z >= 0.3 ? "B" : z >= -0.3 ? "C" : z >= -0.9 ? "D" : "F";
+    });
+    return rows;
+  }
+
   var DraftEngine = {
     teamOnClock: teamOnClock,
     nextPickForTeam: nextPickForTeam,
@@ -510,6 +577,8 @@
     pGoneBy: pGoneBy,
     recommend: recommend,
     evaluateKeeper: evaluateKeeper,
+    starterPoints: starterPoints,
+    evaluateTeams: evaluateTeams,
   };
 
   if (typeof module !== "undefined" && module.exports) module.exports = DraftEngine;

@@ -77,6 +77,7 @@
     </div>
     <div id="my-next" class="my-next"></div>
     <div class="topbar-actions">
+      <button id="btn-recap" class="btn" hidden title="Draft recap with grades">🏆 Recap</button>
       <button id="btn-undo" class="btn" title="Undo last pick">↩ Undo</button>
       <button id="btn-export" class="btn" title="Download draft as JSON">Export</button>
       <button id="btn-restart" class="btn danger" title="Abandon draft and return to setup">Reset</button>
@@ -129,6 +130,28 @@
       <div id="teams-panel"></div>
       <div id="log-panel" hidden></div>
     </div>
+  </main>
+</section>
+
+<!-- ===================== RECAP ===================== -->
+<section id="results-screen" class="screen" hidden>
+  <header class="topbar">
+    <div class="topbar-left">
+      <span class="brand">🏆</span>
+      <div class="clock">
+        <div class="clock-pick">Draft Recap</div>
+        <div class="clock-team" id="recap-sub"></div>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <button id="btn-back" class="btn">← Back to draft</button>
+      <button id="btn-export2" class="btn">Export</button>
+    </div>
+  </header>
+  <main class="recap">
+    <div id="grades-table" class="grades"></div>
+    <h3 class="board-title">Pick-by-pick board <span class="board-hint">green = value vs ADP, red = reach</span></h3>
+    <div class="board-wrap"><table class="board" id="draft-board"></table></div>
   </main>
 </section>
 

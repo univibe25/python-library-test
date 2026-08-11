@@ -158,5 +158,40 @@ const evBad = E.evaluateKeeper(pool, config, midRb, 2);
 check("mid RB at round-2 price is not KEEP", evBad.verdict !== "KEEP", JSON.stringify(evBad));
 check("alternative reported", evBad.alternative && evBad.alternative.name.length > 0);
 
+// --- end-of-draft grading ---
+// Rebuild per-team pick lists (with pick numbers) from the simulated draft.
+const teamsPicks = Array.from({ length: 10 }, () => []);
+{
+  const seen = new Set();
+  let overall = 0;
+  // Replay: rosters[] preserved pick order per team; recover pick numbers by
+  // re-walking the snake order.
+  const cursor = rosters.map(() => 0);
+  for (let pick = 0; pick < totalPicks; pick++) {
+    const team = E.teamOnClock(pick, 10);
+    const player = rosters[team][cursor[team]++];
+    if (player) teamsPicks[team].push({ player, pickNumber: pick + 1 });
+  }
+}
+const graded = E.evaluateTeams(teamsPicks, config);
+check("grades for all teams", graded.length === 10);
+check(
+  "grades are A-F",
+  graded.every((g) => ["A", "B", "C", "D", "F"].includes(g.grade)),
+  JSON.stringify(graded.map((g) => g.grade))
+);
+check(
+  "grade distribution is not flat",
+  new Set(graded.map((g) => g.grade)).size >= 2
+);
+const myGrade = graded[config.mySlot];
+console.log(
+  "grades:", graded.map((g, i) => `T${i + 1}:${g.grade}(${g.starterPts})`).join(" "),
+  "| mine:", myGrade.grade
+);
+check("optimizer team grades B or better", ["A", "B"].includes(myGrade.grade), myGrade.grade);
+check("starter pts sane", graded.every((g) => g.starterPts > 800 && g.starterPts < 2500));
+check("steal identified for someone", graded.some((g) => g.steal && g.steal.delta > 0));
+
 console.log(failures === 0 ? "\nALL TESTS PASSED" : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

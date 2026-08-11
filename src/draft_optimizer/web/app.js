@@ -489,6 +489,10 @@
     renderRecommendation();
     renderPool();
     renderTeams();
+    if (draftOver() && !ui.recapShown) {
+      ui.recapShown = true;
+      showResults();
+    }
   }
 
   function renderClock() {
@@ -503,6 +507,7 @@
     var round = Math.floor(pick / cfg.teams) + 1;
     var inRound = (pick % cfg.teams) + 1;
     $("#clock-pick").textContent = "Round " + round + " · Pick " + inRound + " (#" + (pick + 1) + ")";
+    $("#btn-recap").hidden = !state.picks.length;
     var clockEl = $("#clock-team");
     var team = onClock();
     clockEl.textContent = "On the clock: " + teamName(team) + (team === cfg.mySlot ? " — YOU" : "");
@@ -533,7 +538,11 @@
     var notesEl = $("#rec-notes");
     if (draftOver()) {
       card.className = "rec-card waiting";
-      card.innerHTML = "<div class='rec-label'>DRAFT COMPLETE</div><div class='rec-meta'>Good luck this season! Export your board from the top bar.</div>";
+      card.innerHTML =
+        "<div class='rec-label'>DRAFT COMPLETE</div>" +
+        "<div class='rec-meta'>Good luck this season!</div>" +
+        "<button class='btn primary' id='btn-view-recap'>🏆 View recap &amp; grades</button>";
+      $("#btn-view-recap").addEventListener("click", showResults);
       alts.innerHTML = "";
       notesEl.innerHTML = "";
       return;
@@ -762,6 +771,99 @@
     });
   }
 
+  // ---------- recap ----------
+
+  function shortName(p) {
+    if (p.pos === "DST") return p.name.split(" ").pop() + " D/ST";
+    var parts = p.name.split(" ");
+    return parts.length > 1 ? parts[0][0] + ". " + parts.slice(1).join(" ") : p.name;
+  }
+
+  function showResults() {
+    var cfg = state.config;
+    var autoIdx = new Set();
+    var teamsPicks = range(0, cfg.teams - 1).map(function () { return []; });
+    state.picks.forEach(function (pk, i) {
+      if (pk.auto) autoIdx.add(i);
+      teamsPicks[pk.team].push({ player: state.poolById[pk.playerId], pickNumber: i + 1, auto: !!pk.auto });
+    });
+    var rows = E.evaluateTeams(teamsPicks, cfg);
+    var order = range(0, cfg.teams - 1).sort(function (a, b) { return rows[b].quality - rows[a].quality; });
+    var maxPts = Math.max.apply(null, rows.map(function (r) { return r.starterPts; })) || 1;
+
+    $("#recap-sub").textContent =
+      cfg.teams + " teams · " + state.picks.length + " picks · projected points from your starters decide the grade";
+
+    var fact = function (label, x) {
+      if (!x) return "<span class='pickfact'>" + label + ": —</span>";
+      var d = Math.round(x.delta);
+      return (
+        "<span class='pickfact'>" + label + ": <b>" + esc(shortName(x.pick.player)) + "</b> " +
+        "<span class='" + (d >= 0 ? "delta-pos" : "delta-neg") + "'>" + (d >= 0 ? "+" : "") + d + "</span>" +
+        " <span title='picked #" + x.pick.pickNumber + ", ADP " + x.pick.player.estAdp.toFixed(0) + "'>vs ADP</span></span>"
+      );
+    };
+
+    $("#grades-table").innerHTML =
+      "<div class='grade-row head'><span>RANK</span><span>GRADE</span><span>TEAM</span><span>PROJ STARTER PTS</span><span style='text-align:right'>BENCH</span><span>BEST VALUE</span><span>BIGGEST REACH</span></div>" +
+      order.map(function (t, i) {
+        var r = rows[t];
+        var isMe = t === cfg.mySlot;
+        return (
+          "<div class='grade-row" + (isMe ? " me" : "") + "'>" +
+          "<span>#" + (i + 1) + "</span>" +
+          "<span class='grade-chip grade-" + r.grade + "'>" + r.grade + "</span>" +
+          "<span class='grade-team'>" + esc(teamName(t)) + (isMe ? " ⭐" : "") +
+          "<span class='sub'>" + teamsPicks[t].length + " picks</span></span>" +
+          "<span class='ptsbar'><span class='bar'><span class='fill' style='width:" +
+          Math.round((r.starterPts / maxPts) * 100) + "%'></span></span><span class='num'>" + r.starterPts + "</span></span>" +
+          "<span class='grade-bench'>" + r.benchPts + "</span>" +
+          fact("Steal", r.steal) + fact("Reach", r.reach) +
+          "</div>"
+        );
+      }).join("");
+
+    // Pick-by-pick board: rounds down the side, teams across the top.
+    var roundsDone = Math.ceil(state.picks.length / cfg.teams);
+    var head =
+      "<tr><th></th>" +
+      range(0, cfg.teams - 1).map(function (t) {
+        return "<th" + (t === cfg.mySlot ? " class='me-col'" : "") + ">" + esc(teamName(t)) + "</th>";
+      }).join("") + "</tr>";
+    var body = range(1, roundsDone).map(function (rd) {
+      return (
+        "<tr><td class='rd-cell'>" + rd + "</td>" +
+        range(0, cfg.teams - 1).map(function (t) {
+          var idx = E.pickIndexFor(t, rd, cfg.teams);
+          var pk = state.picks[idx];
+          var me = t === cfg.mySlot ? " me-col" : "";
+          if (!pk) return "<td class='" + me + "'></td>";
+          var p = state.poolById[pk.playerId];
+          var d = p.estAdp != null ? Math.round(p.estAdp - (idx + 1)) : null;
+          return (
+            "<td class='" + me + "'><div class='cell c-" + p.pos + "' title='" +
+            esc(p.name + " — pick #" + (idx + 1) + (p.estAdp != null ? ", ADP " + p.estAdp.toFixed(0) : "")) + "'>" +
+            "<span class='nm'>" + esc(shortName(p)) + (pk.auto ? "<span class='keeper-tag'>K</span>" : "") + "</span>" +
+            "<span class='in'><span>" + (p.pos === "DST" ? "DEF" : p.pos) + " · " + Math.round(p.points) + "</span>" +
+            (d == null ? "<span></span>" :
+              "<span class='" + (d >= 0 ? "delta-pos" : "delta-neg") + "'>" + (d >= 0 ? "+" : "") + d + "</span>") +
+            "</span></div></td>"
+          );
+        }).join("") + "</tr>"
+      );
+    }).join("");
+    $("#draft-board").innerHTML = head + body;
+
+    $("#draft-screen").hidden = true;
+    $("#results-screen").hidden = false;
+    window.scrollTo(0, 0);
+  }
+
+  function hideResults() {
+    $("#results-screen").hidden = true;
+    $("#draft-screen").hidden = false;
+  }
+
   // ---------- export ----------
 
   function exportDraft() {
@@ -796,6 +898,9 @@
   function initDraftEvents() {
     $("#btn-undo").addEventListener("click", undo);
     $("#btn-export").addEventListener("click", exportDraft);
+    $("#btn-recap").addEventListener("click", showResults);
+    $("#btn-back").addEventListener("click", hideResults);
+    $("#btn-export2").addEventListener("click", exportDraft);
     $("#btn-restart").addEventListener("click", function () {
       if (confirm("Abandon this draft and return to setup? (The saved draft will be cleared.)")) {
         clearSaved();
