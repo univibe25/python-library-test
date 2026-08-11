@@ -866,6 +866,48 @@
 
   // ---------- export ----------
 
+  function downloadFile(name, mime, content) {
+    var blob = new Blob([content], { type: mime });
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  function csvCell(v) {
+    v = v == null ? "" : String(v);
+    return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+  }
+
+  // Pick-by-pick CSV in draft order — matches the order Yahoo's commissioner
+  // "enter offline draft results" flow walks through, so it doubles as the
+  // entry sheet for getting results into Yahoo after an offline draft.
+  function exportCsv() {
+    var cfg = state.config;
+    var header = ["overall", "round", "pick_in_round", "fantasy_team", "player",
+      "position", "nfl_team", "bye", "proj_points", "adp", "keeper"];
+    var lines = [header.join(",")];
+    state.picks.forEach(function (pk, i) {
+      var p = state.poolById[pk.playerId];
+      lines.push([
+        i + 1,
+        Math.floor(i / cfg.teams) + 1,
+        (i % cfg.teams) + 1,
+        csvCell(teamName(pk.team)),
+        csvCell(p.name),
+        p.pos === "DST" ? "DEF" : p.pos,
+        p.team || "",
+        p.bye || "",
+        p.points != null ? p.points : "",
+        p.estAdp != null ? p.estAdp.toFixed(1) : "",
+        pk.auto ? "Y" : "",
+      ].join(","));
+    });
+    downloadFile("draft-" + new Date().toISOString().slice(0, 10) + ".csv",
+      "text/csv", lines.join("\n") + "\n");
+  }
+
   function exportDraft() {
     var cfg = state.config;
     var out = {
@@ -885,12 +927,8 @@
         };
       }),
     };
-    var blob = new Blob([JSON.stringify(out, null, 2)], { type: "application/json" });
-    var a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "draft-" + new Date().toISOString().slice(0, 10) + ".json";
-    a.click();
-    URL.revokeObjectURL(a.href);
+    downloadFile("draft-" + new Date().toISOString().slice(0, 10) + ".json",
+      "application/json", JSON.stringify(out, null, 2));
   }
 
   // ---------- events ----------
@@ -901,6 +939,7 @@
     $("#btn-recap").addEventListener("click", showResults);
     $("#btn-back").addEventListener("click", hideResults);
     $("#btn-export2").addEventListener("click", exportDraft);
+    $("#btn-csv").addEventListener("click", exportCsv);
     $("#btn-restart").addEventListener("click", function () {
       if (confirm("Abandon this draft and return to setup? (The saved draft will be cleared.)")) {
         clearSaved();
