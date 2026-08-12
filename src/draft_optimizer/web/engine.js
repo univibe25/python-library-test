@@ -220,6 +220,32 @@
     // --- positional eligibility gates ---
     var lastRounds = round >= config.rounds - 1;
     var specialNeeded = need.K + need.DST;
+
+    // Minimum coverage per position (starters plus, bench allowing, a couple
+    // of RB/WR backups). Steep RB value curves would otherwise crowd WR off
+    // the roster entirely and leave bye weeks unplayable.
+    var starterSlots = ["QB", "RB", "WR", "TE", "FLEX", "K", "DST"].reduce(function (s, k) {
+      return s + (roster[k] || 0);
+    }, 0);
+    var depthExtras = Math.max(0, Math.min(2, Math.floor((config.rounds - starterSlots) / 3)));
+    var minCount = {
+      QB: roster.QB ? 1 : 0,
+      RB: (roster.RB || 0) + depthExtras,
+      WR: (roster.WR || 0) + depthExtras,
+      TE: roster.TE ? 1 : 0,
+      K: roster.K || 0,
+      DST: roster.DST || 0,
+    };
+    // A pick is blocked if, after making it, the picks I have left couldn't
+    // still cover every position's minimum.
+    var coverageBlocked = function (pos) {
+      var deficits = 0;
+      POSITIONS.forEach(function (p) {
+        var have = countPos(myPlayers, p) + (p === pos ? 1 : 0);
+        deficits += Math.max(0, minCount[p] - have);
+      });
+      return deficits > myRemaining - 1;
+    };
     var eligible = function (pl) {
       if (rosterFull) return false;
       if (pl.pos === "K" || pl.pos === "DST") {
@@ -253,6 +279,7 @@
           need[pl.pos] > 0 || (FLEX_ELIGIBLE[pl.pos] && need.FLEX > 0);
         if (!fills) return false;
       }
+      if (coverageBlocked(pl.pos)) return false;
       return true;
     };
 
