@@ -226,6 +226,7 @@
       teams: parseInt($("#cfg-teams").value, 10),
       mySlot: parseInt($("#cfg-slot").value, 10) - 1,
       rounds: parseInt($("#cfg-rounds").value, 10),
+      passTd6: $("#cfg-passtd").value === "6",
       roster: rosterFromInputs(),
     };
   }
@@ -234,7 +235,7 @@
   function setupPool() {
     if (!setupData) return null;
     var cfg = setupFormConfig();
-    var key = cfg.scoring + "|" + cfg.teams;
+    var key = cfg.scoring + "|" + cfg.teams + "|" + cfg.passTd6;
     if (setupPoolCache.key !== key) {
       var pool = E.buildPool(setupData.players, cfg);
       var byId = {};
@@ -370,7 +371,7 @@
       $("#keeper-player").value = "";
       renderKeeperList();
     });
-    ["cfg-teams", "cfg-slot", "cfg-rounds"].forEach(function (id) {
+    ["cfg-teams", "cfg-slot", "cfg-rounds", "cfg-passtd"].forEach(function (id) {
       $("#" + id).addEventListener("change", refreshKeeperControls);
     });
     // Ranked cheat sheet, one row per player in board order. The first
@@ -405,6 +406,7 @@
       teams: teams,
       mySlot: parseInt($("#cfg-slot").value, 10) - 1,
       rounds: parseInt($("#cfg-rounds").value, 10),
+      passTd6: $("#cfg-passtd").value === "6",
       roster: rosterFromInputs(),
       teamNames: $$("#team-names input").map(function (el, i) {
         return el.value.trim() || "Team " + (i + 1);

@@ -111,6 +111,15 @@
     var players = rawPlayers.map(function (p) {
       return Object.assign({}, p);
     });
+    // Leagues scoring passing TDs at 6 (standard projections assume 4) get
+    // +2 points per projected passing TD, before VOR baselines are computed.
+    if (config.passTd6) {
+      players.forEach(function (p) {
+        if (p.pos === "QB" && p.points != null && p.pass_td != null) {
+          p.points = Math.round((p.points + 2 * p.pass_td) * 10) / 10;
+        }
+      });
+    }
     fillMissingPoints(players);
 
     var ranks = replacementRanks(config.teams);

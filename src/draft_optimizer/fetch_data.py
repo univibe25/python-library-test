@@ -151,6 +151,9 @@ def fetch_sleeper_projections(year: int) -> dict[tuple[str, str], dict]:
             "points": {s: stats.get(SLEEPER_PTS[s]) for s in SCORING_FORMATS},
             "adp": {s: stats.get(SLEEPER_ADP[s]) for s in SCORING_FORMATS},
             "injury": player.get("injury_status") or None,
+            # Projected passing TDs, kept so leagues that score them at 6
+            # (instead of the standard 4) can re-value QBs client-side.
+            "pass_td": stats.get("pass_td") if pos == "QB" else None,
         }
         prev = out.get(key)
         # On duplicate names at a position keep the higher-projected player.
@@ -212,11 +215,14 @@ def build_format(scoring: str, year: int, projections: dict[tuple[str, str], dic
         entry["points"] = None
         entry["sleeper_adp"] = None
         entry["injury"] = None
+        entry["pass_td"] = None
         if sleeper:
             pts = sleeper["points"].get(scoring)
             entry["points"] = round(pts, 1) if pts is not None else None
             entry["sleeper_adp"] = sleeper["adp"].get(scoring)
             entry["injury"] = sleeper["injury"]
+            if sleeper.get("pass_td") is not None:
+                entry["pass_td"] = round(sleeper["pass_td"], 1)
             if pts is not None:
                 matched_proj += 1
         entry["adp"] = {}
