@@ -226,6 +226,7 @@
       teams: parseInt($("#cfg-teams").value, 10),
       mySlot: parseInt($("#cfg-slot").value, 10) - 1,
       rounds: parseInt($("#cfg-rounds").value, 10),
+      passTd6: $("#cfg-passtd").value === "6",
       roster: rosterFromInputs(),
     };
   }
@@ -234,7 +235,7 @@
   function setupPool() {
     if (!setupData) return null;
     var cfg = setupFormConfig();
-    var key = cfg.scoring + "|" + cfg.teams;
+    var key = cfg.scoring + "|" + cfg.teams + "|" + cfg.passTd6;
     if (setupPoolCache.key !== key) {
       var pool = E.buildPool(setupData.players, cfg);
       var byId = {};
@@ -370,7 +371,7 @@
       $("#keeper-player").value = "";
       renderKeeperList();
     });
-    ["cfg-teams", "cfg-slot", "cfg-rounds"].forEach(function (id) {
+    ["cfg-teams", "cfg-slot", "cfg-rounds", "cfg-passtd"].forEach(function (id) {
       $("#" + id).addEventListener("change", refreshKeeperControls);
     });
     // Ranked cheat sheet, one row per player in board order. The first
@@ -405,6 +406,7 @@
       teams: teams,
       mySlot: parseInt($("#cfg-slot").value, 10) - 1,
       rounds: parseInt($("#cfg-rounds").value, 10),
+      passTd6: $("#cfg-passtd").value === "6",
       roster: rosterFromInputs(),
       teamNames: $$("#team-names input").map(function (el, i) {
         return el.value.trim() || "Team " + (i + 1);
@@ -470,6 +472,7 @@
     state.picks.push({ playerId: playerId, team: team });
     var pickNo = state.picks.length;
     var auto = autoApplyKeepers();
+    botAdvance();
     save();
     toast(
       "Pick " + pickNo + ": " + player.name + " → " + teamName(team) +
@@ -482,12 +485,224 @@
   }
 
   function undo() {
-    // Roll back any auto-filled keeper picks, then one human pick.
-    while (state.picks.length && state.picks[state.picks.length - 1].auto) state.picks.pop();
+    // Roll back keeper auto-fills and practice-bot picks, then one human pick.
+    while (
+      state.picks.length &&
+      (state.picks[state.picks.length - 1].auto || state.picks[state.picks.length - 1].bot)
+    )
+      state.picks.pop();
     if (!state.picks.length) { render(); return; }
     var last = state.picks.pop();
     save();
     toast("Undid: " + state.poolById[last.playerId].name + " (was " + teamName(last.team) + ")");
+    render();
+  }
+
+  // Practice mode: opponents draft themselves by market price (with light
+  // positional sanity) until it's the user's turn.
+  function botAdvance() {
+    if (!$("#bot-toggle").checked) return;
+    while (!draftOver() && !isMyTurn()) {
+      var team = onClock();
+      var round = Math.floor(currentPick() / state.config.teams) + 1;
+      var lastTwo = state.config.rounds - 1;
+      var mine = teamPlayers(team, true);
+      var count = function (pos) { return mine.filter(function (p) { return p.pos === pos; }).length; };
+      var blocked = unavailableIds();
+      var best = null;
+      state.pool.forEach(function (p) {
+        if (blocked.has(p.id)) return;
+        if ((p.pos === "K" || p.pos === "DST") && (round < lastTwo || count(p.pos) >= 1)) return;
+        if (p.pos === "QB" && count("QB") >= 2) return;
+        if (p.pos === "TE" && count("TE") >= 2) return;
+        var price = (p.estAdp != null ? p.estAdp : p.rank + 15) + Math.random() * 3;
+        if (!best || price < best.price) best = { p: p, price: price };
+      });
+      if (!best) break;
+      state.picks.push({ playerId: best.p.id, team: team, bot: true });
+      autoApplyKeepers();
+    }
+    save();
+  }
+
+  function renameTeam(t) {
+    var name = prompt("Team name:", teamName(t));
+    if (name && name.trim()) {
+      state.config.teamNames = state.config.teamNames || [];
+      state.config.teamNames[t] = name.trim();
+      save();
+      render();
+    }
+  }
+
+  // Mid-draft keeper editor: fix a wrong round, remove a keeper, or add one
+  // announced late. The board rebuilds around the change.
+  function editKeepers() {
+    var ks = keepers();
+    var lines = ks.map(function (k, n) {
+      var p = state.poolById[k.playerId];
+      return (n + 1) + ". " + (p ? p.name : "?") + " — " + teamName(k.team) + ", costs round " + k.round;
+    });
+    var cmd = prompt(
+      (lines.length ? lines.join("\n") : "No keepers configured.") +
+      "\n\nCommands:\n  remove <n>\n  round <n> <newRound>\n  add",
+      ""
+    );
+    if (!cmd || !cmd.trim()) return;
+    var parts = cmd.trim().toLowerCase().split(/\s+/);
+    var changed = false;
+    if (parts[0] === "remove") {
+      var ri = parseInt(parts[1], 10) - 1;
+      if (isNaN(ri) || !ks[ri]) { alert("No keeper #" + parts[1]); return; }
+      var gone = state.poolById[ks[ri].playerId];
+      ks.splice(ri, 1);
+      toast("Keeper removed: " + (gone ? gone.name : "?"));
+      changed = true;
+    } else if (parts[0] === "round") {
+      var ki = parseInt(parts[1], 10) - 1;
+      var newRound = parseInt(parts[2], 10);
+      if (isNaN(ki) || !ks[ki]) { alert("No keeper #" + parts[1]); return; }
+      if (isNaN(newRound) || newRound < 1 || newRound > state.config.rounds) {
+        alert("Round must be 1-" + state.config.rounds); return;
+      }
+      var clash = ks.some(function (k, n) {
+        return n !== ki && k.team === ks[ki].team && k.round === newRound;
+      });
+      if (clash) { alert("That team already has a keeper costing round " + newRound); return; }
+      ks[ki].round = newRound;
+      toast("Keeper now costs round " + newRound);
+      changed = true;
+    } else if (parts[0] === "add") {
+      var player = promptForPlayer("Keeper player:");
+      if (!player) return;
+      var teamNo = parseInt(prompt("Which team? (1-" + state.config.teams + ")"), 10) - 1;
+      if (isNaN(teamNo) || teamNo < 0 || teamNo >= state.config.teams) return;
+      if (ks.filter(function (k) { return k.team === teamNo; }).length >= 2) {
+        alert(teamName(teamNo) + " already has 2 keepers."); return;
+      }
+      var round = parseInt(prompt("Costs which round? (1-" + state.config.rounds + ")"), 10);
+      if (isNaN(round) || round < 1 || round > state.config.rounds) return;
+      if (ks.some(function (k) { return k.team === teamNo && k.round === round; })) {
+        alert(teamName(teamNo) + " already has a keeper costing round " + round); return;
+      }
+      ks.push({ team: teamNo, playerId: player.id, round: round });
+      toast("Keeper added: " + player.name + " → " + teamName(teamNo) + " (round " + round + ")");
+      changed = true;
+    } else {
+      alert("Unknown command. Use: remove <n>, round <n> <newRound>, or add");
+    }
+    if (changed) {
+      state.config.keepers = ks;
+      rebuildFromHumans(humanPicks());
+      save();
+      render();
+    }
+  }
+
+  // Prompt for an available player by name; returns the player or null.
+  function promptForPlayer(message) {
+    var query = prompt(message);
+    if (!query || !query.trim()) return null;
+    var q = query.trim().toLowerCase();
+    var blocked = unavailableIds();
+    var matches = state.pool.filter(function (p) {
+      return !blocked.has(p.id) && p.name.toLowerCase().indexOf(q) !== -1;
+    });
+    if (!matches.length) {
+      alert("No available player matches “" + query + "”.");
+      return null;
+    }
+    matches.sort(function (a, b) { return a.rank - b.rank; });
+    if (matches.length > 1 && matches[0].name.toLowerCase() !== q) {
+      var pickText = matches.slice(0, 5).map(function (p, n) {
+        return (n + 1) + ". " + p.name + " (" + p.pos + " " + (p.team || "") + ")";
+      }).join("\n");
+      var choice = prompt("Which one?\n" + pickText + "\n\nEnter a number:", "1");
+      var idx = parseInt(choice, 10) - 1;
+      if (isNaN(idx) || idx < 0 || idx >= Math.min(5, matches.length)) return null;
+      return matches[idx];
+    }
+    return matches[0];
+  }
+
+  // Human (non-keeper) picks in draft order.
+  function humanPicks() {
+    return state.picks.filter(function (pk) { return !pk.auto; });
+  }
+
+  // Rebuild the board from an ordered list of human picks: every pick's team
+  // is re-derived from the snake order and keeper picks are re-seated at
+  // their proper slots. This is what makes structural edits (delete a
+  // mistaken pick, insert a missed one, change a keeper) safe mid-draft —
+  // one fix can never leave the rest of the board misattributed.
+  function rebuildFromHumans(humans) {
+    var teams = state.config.teams;
+    var keepersByIdx = {};
+    keepers().forEach(function (k) {
+      if (state.poolById[k.playerId]) {
+        keepersByIdx[E.pickIndexFor(k.team, k.round, teams)] = k;
+      }
+    });
+    var placed = [];
+    var placedIds = new Set();
+    var queue = humans.slice();
+    for (var idx = 0; idx < totalPicks(); idx++) {
+      var k = keepersByIdx[idx];
+      if (k && !placedIds.has(k.playerId)) {
+        placed.push({ playerId: k.playerId, team: E.teamOnClock(idx, teams), auto: true });
+        placedIds.add(k.playerId);
+        continue;
+      }
+      while (queue.length && placedIds.has(queue[0].playerId)) queue.shift();
+      if (!queue.length) break;
+      var pk = queue.shift();
+      var entry = { playerId: pk.playerId, team: E.teamOnClock(idx, teams) };
+      if (pk.bot) entry.bot = true;
+      placed.push(entry);
+      placedIds.add(pk.playerId);
+    }
+    if (queue.length) alert("Board is full — " + queue.length + " pick(s) could not be placed.");
+    state.picks = placed;
+  }
+
+  // Swap the player on an already-entered pick (mis-clicks discovered a few
+  // picks later) without unwinding everything after it.
+  function fixPick(i) {
+    var pk = state.picks[i];
+    if (!pk || pk.auto) return;
+    var old = state.poolById[pk.playerId];
+    var player = promptForPlayer("Replace " + old.name + " (" + teamName(pk.team) + ") with:");
+    if (!player) return;
+    pk.playerId = player.id;
+    save();
+    toast("Pick " + (i + 1) + " corrected: " + old.name + " → " + player.name);
+    render();
+  }
+
+  // Remove a pick that never happened; everything after it shifts up.
+  function deletePick(i) {
+    var pk = state.picks[i];
+    if (!pk || pk.auto) return;
+    var name = state.poolById[pk.playerId].name;
+    if (!confirm("Delete pick " + (i + 1) + " (" + name + " → " + teamName(pk.team) + ")?\nEvery later pick shifts up one slot.")) return;
+    var humans = humanPicks();
+    humans.splice(humans.indexOf(pk), 1);
+    rebuildFromHumans(humans);
+    save();
+    toast("Deleted: " + name + " — later picks renumbered");
+    render();
+  }
+
+  // Insert a pick you missed recording; everything from there shifts down.
+  function insertPick(i) {
+    var player = promptForPlayer("Missed pick before #" + (i + 1) + " — who was taken?");
+    if (!player) return;
+    var humansBefore = state.picks.slice(0, i).filter(function (pk) { return !pk.auto; }).length;
+    var humans = humanPicks();
+    humans.splice(humansBefore, 0, { playerId: player.id });
+    rebuildFromHumans(humans);
+    save();
+    toast("Inserted " + player.name + " — later picks renumbered");
     render();
   }
 
@@ -732,11 +947,31 @@
             (inRound < 10 ? "0" : "") + inRound + "</span>" +
             "<span class='pos-badge pos-" + p.pos + "'>" + (p.pos === "DST" ? "DEF" : p.pos) + "</span> " +
             "<span>" + esc(p.name) + (pk.auto ? "<span class='keeper-tag'>KEEPER</span>" : "") + "</span>" +
-            "<span class='log-team'>" + esc(teamName(pk.team)) + "</span></div>"
+            "<span class='log-team'>" + esc(teamName(pk.team)) + "</span>" +
+            "<button class='rm log-ins' data-i='" + i + "' title='Insert a missed pick before this one'>＋</button>" +
+            (pk.auto ? "" :
+              "<button class='rm log-edit' data-i='" + i + "' title='Entered the wrong player? Swap this pick'>✎</button>" +
+              "<button class='rm log-del' data-i='" + i + "' title='Delete this pick (later picks shift up)'>✕</button>") +
+            "</div>"
           );
         })
         .reverse()
         .join("") || "<div class='note'>No picks yet.</div>";
+      $$(".log-edit").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          fixPick(parseInt(btn.getAttribute("data-i"), 10));
+        });
+      });
+      $$(".log-del").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          deletePick(parseInt(btn.getAttribute("data-i"), 10));
+        });
+      });
+      $$(".log-ins").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          insertPick(parseInt(btn.getAttribute("data-i"), 10));
+        });
+      });
       return;
     }
 
@@ -749,8 +984,9 @@
         var isMe = t === cfg.mySlot;
         var open = isMe || ui.openTeams[t];
         var head =
-          "<div class='team-head' data-team='" + t + "'>" +
-          "<span>" + esc(teamName(t)) + (isMe ? " ⭐" : "") + "</span>" +
+          "<div class='team-head' data-team='" + t + "' title='Click to expand · double-click to rename'>" +
+          "<span>" + esc(teamName(t)) + (isMe ? " ⭐" : "") +
+          " <button class='rm head-rename' data-team='" + t + "' title='Rename team'>✎</button></span>" +
           "<span class='badge'>" + players.length + " picks " + (open ? "▾" : "▸") + "</span></div>";
         if (!open) {
           return "<div class='team-card" + (isMe ? " me" : "") + (t === clock ? " on-clock" : "") + "'>" + head + "</div>";
@@ -790,6 +1026,15 @@
         var t = parseInt(el.getAttribute("data-team"), 10);
         ui.openTeams[t] = !ui.openTeams[t];
         renderTeams();
+      });
+      el.addEventListener("dblclick", function () {
+        renameTeam(parseInt(el.getAttribute("data-team"), 10));
+      });
+    });
+    $$(".head-rename").forEach(function (btn) {
+      btn.addEventListener("click", function (ev) {
+        ev.stopPropagation();
+        renameTeam(parseInt(btn.getAttribute("data-team"), 10));
       });
     });
   }
@@ -983,6 +1228,7 @@
     $("#btn-undo").addEventListener("click", undo);
     $("#btn-export").addEventListener("click", exportDraft);
     $("#btn-recap").addEventListener("click", showResults);
+    $("#btn-keepers").addEventListener("click", editKeepers);
     $("#btn-back").addEventListener("click", hideResults);
     $("#btn-export2").addEventListener("click", exportDraft);
     $("#btn-csv").addEventListener("click", exportCsv);
@@ -1019,6 +1265,10 @@
     });
     $("#tab-rosters").addEventListener("click", function () { ui.teamsTab = "rosters"; renderTeams(); });
     $("#tab-log").addEventListener("click", function () { ui.teamsTab = "log"; renderTeams(); });
+    $("#bot-toggle").addEventListener("change", function () {
+      botAdvance();
+      render();
+    });
 
     document.addEventListener("keydown", function (ev) {
       if (ev.key === "/" && document.activeElement !== $("#search")) {

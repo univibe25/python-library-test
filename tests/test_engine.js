@@ -158,6 +158,26 @@ const evBad = E.evaluateKeeper(pool, config, midRb, 2);
 check("mid RB at round-2 price is not KEEP", evBad.verdict !== "KEEP", JSON.stringify(evBad));
 check("alternative reported", evBad.alternative && evBad.alternative.name.length > 0);
 
+// --- 6-pt passing TD adjustment ---
+{
+  const pprData = JSON.parse(
+    fs.readFileSync(path.join(__dirname, "../src/draft_optimizer/web/data/players-ppr.json"))
+  );
+  const base = E.buildPool(pprData.players, { ...config, scoring: "ppr" });
+  const adj = E.buildPool(pprData.players, { ...config, scoring: "ppr", passTd6: true });
+  const qbB = base.filter((p) => p.pos === "QB" && p.pass_td).sort((a, b) => a.rank - b.rank)[0];
+  const qbA = adj.find((p) => p.id === qbB.id);
+  check(
+    "passTd6 adds 2 pts per projected passing TD",
+    Math.abs(qbA.points - (qbB.points + 2 * qbB.pass_td)) < 0.11,
+    `${qbB.points} -> ${qbA.points} (pass_td ${qbB.pass_td})`
+  );
+  check("passTd6 raises QB VOR baseline sanely", qbA.vor >= qbB.vor - 1, `${qbB.vor} -> ${qbA.vor}`);
+  const wrB = base.find((p) => p.pos === "WR" && p.points);
+  const wrA = adj.find((p) => p.id === wrB.id);
+  check("non-QBs unchanged by passTd6", wrA.points === wrB.points);
+}
+
 // --- end-of-draft grading ---
 // Rebuild per-team pick lists (with pick numbers) from the simulated draft.
 const teamsPicks = Array.from({ length: 10 }, () => []);

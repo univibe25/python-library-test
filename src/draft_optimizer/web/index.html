@@ -18,8 +18,8 @@
     <div class="setup-grid">
       <label>Scoring
         <select id="cfg-scoring">
-          <option value="half" selected>Half PPR (Yahoo default)</option>
-          <option value="ppr">Full PPR</option>
+          <option value="ppr" selected>Full PPR</option>
+          <option value="half">Half PPR</option>
           <option value="std">Standard</option>
         </select>
       </label>
@@ -31,6 +31,12 @@
       </label>
       <label>Rounds
         <select id="cfg-rounds"></select>
+      </label>
+      <label title="Standard projections assume 4-point passing TDs. Check this if your league scores them at 6 — QBs get revalued accordingly.">Passing TDs
+        <select id="cfg-passtd">
+          <option value="6" selected>6 points</option>
+          <option value="4">4 points (Yahoo default)</option>
+        </select>
       </label>
     </div>
 
@@ -78,6 +84,8 @@
     </div>
     <div id="my-next" class="my-next"></div>
     <div class="topbar-actions">
+      <label class="chk" title="Practice mode: the other teams draft themselves by market price until it's your turn"><input type="checkbox" id="bot-toggle"> auto-pick others</label>
+      <button id="btn-keepers" class="btn" title="Fix a keeper's round, remove one, or add a late announcement">Keepers</button>
       <button id="btn-recap" class="btn" hidden title="Draft recap with grades">🏆 Recap</button>
       <button id="btn-undo" class="btn" title="Undo last pick">↩ Undo</button>
       <button id="btn-export" class="btn" title="Download draft as JSON">Export</button>
