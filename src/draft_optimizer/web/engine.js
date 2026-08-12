@@ -502,20 +502,29 @@
    * Compares the player's VOR against the best VOR you could likely get with
    * that pick anyway (best available player whose ADP says he survives to it).
    */
+  // Raw QB VOR overstates draft value in 1-QB leagues (you start one and the
+  // position streams); the draft engine damps QBs with round gates, so keeper
+  // comparisons damp them the same way to stay consistent.
+  function keeperValue(p) {
+    return p.pos === "QB" ? p.vor * 0.6 : p.vor;
+  }
+
   function evaluateKeeper(pool, config, player, round) {
     var pickIdx = pickIndexFor(config.mySlot, round, config.teams);
     var pickNumber = pickIdx + 1;
     // Best value the market expects to still be on the board at that pick.
     // Keepers league-wide remove players roughly evenly, so raw ADP stays a
-    // fair proxy for who's left.
+    // fair proxy for who's left. K/DST are excluded — their VOR is not real
+    // draft currency at the rounds keepers cost.
     var bestAlt = null;
     pool.forEach(function (p) {
-      if (p.id === player.id) return;
+      if (p.id === player.id || p.pos === "K" || p.pos === "DST") return;
       var adp = p.estAdp != null ? p.estAdp : p.rank * 1.1;
-      if (adp >= pickNumber - 2 && (bestAlt == null || p.vor > bestAlt.vor)) bestAlt = p;
+      if (adp >= pickNumber - 2 && (bestAlt == null || keeperValue(p) > keeperValue(bestAlt)))
+        bestAlt = p;
     });
-    var altVor = bestAlt ? bestAlt.vor : 0;
-    var surplus = Math.round((player.vor - altVor) * 10) / 10;
+    var altVor = bestAlt ? keeperValue(bestAlt) : 0;
+    var surplus = Math.round((keeperValue(player) - altVor) * 10) / 10;
     var verdict = surplus > 5 ? "KEEP" : surplus < -5 ? "PASS" : "TOSS-UP";
     return {
       pickNumber: pickNumber,
