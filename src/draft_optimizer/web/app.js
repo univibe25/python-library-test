@@ -472,6 +472,7 @@
     state.picks.push({ playerId: playerId, team: team });
     var pickNo = state.picks.length;
     var auto = autoApplyKeepers();
+    botAdvance();
     save();
     toast(
       "Pick " + pickNo + ": " + player.name + " → " + teamName(team) +
@@ -484,12 +485,73 @@
   }
 
   function undo() {
-    // Roll back any auto-filled keeper picks, then one human pick.
-    while (state.picks.length && state.picks[state.picks.length - 1].auto) state.picks.pop();
+    // Roll back keeper auto-fills and practice-bot picks, then one human pick.
+    while (
+      state.picks.length &&
+      (state.picks[state.picks.length - 1].auto || state.picks[state.picks.length - 1].bot)
+    )
+      state.picks.pop();
     if (!state.picks.length) { render(); return; }
     var last = state.picks.pop();
     save();
     toast("Undid: " + state.poolById[last.playerId].name + " (was " + teamName(last.team) + ")");
+    render();
+  }
+
+  // Practice mode: opponents draft themselves by market price (with light
+  // positional sanity) until it's the user's turn.
+  function botAdvance() {
+    if (!$("#bot-toggle").checked) return;
+    while (!draftOver() && !isMyTurn()) {
+      var team = onClock();
+      var round = Math.floor(currentPick() / state.config.teams) + 1;
+      var lastTwo = state.config.rounds - 1;
+      var mine = teamPlayers(team, true);
+      var count = function (pos) { return mine.filter(function (p) { return p.pos === pos; }).length; };
+      var blocked = unavailableIds();
+      var best = null;
+      state.pool.forEach(function (p) {
+        if (blocked.has(p.id)) return;
+        if ((p.pos === "K" || p.pos === "DST") && (round < lastTwo || count(p.pos) >= 1)) return;
+        if (p.pos === "QB" && count("QB") >= 2) return;
+        if (p.pos === "TE" && count("TE") >= 2) return;
+        var price = (p.estAdp != null ? p.estAdp : p.rank + 15) + Math.random() * 3;
+        if (!best || price < best.price) best = { p: p, price: price };
+      });
+      if (!best) break;
+      state.picks.push({ playerId: best.p.id, team: team, bot: true });
+      autoApplyKeepers();
+    }
+    save();
+  }
+
+  // Swap the player on an already-entered pick (mis-clicks discovered a few
+  // picks later) without unwinding everything after it.
+  function fixPick(i) {
+    var pk = state.picks[i];
+    if (!pk || pk.auto) return;
+    var old = state.poolById[pk.playerId];
+    var query = prompt("Replace " + old.name + " (" + teamName(pk.team) + ") with:");
+    if (!query || !query.trim()) return;
+    var q = query.trim().toLowerCase();
+    var blocked = unavailableIds();
+    var matches = state.pool.filter(function (p) {
+      return !blocked.has(p.id) && p.name.toLowerCase().indexOf(q) !== -1;
+    });
+    if (!matches.length) { alert("No available player matches “" + query + "”."); return; }
+    matches.sort(function (a, b) { return a.rank - b.rank; });
+    if (matches.length > 1 && matches[0].name.toLowerCase() !== q) {
+      var pickText = matches.slice(0, 5).map(function (p, n) {
+        return (n + 1) + ". " + p.name + " (" + p.pos + " " + (p.team || "") + ")";
+      }).join("\n");
+      var choice = prompt("Which one?\n" + pickText + "\n\nEnter a number:", "1");
+      var idx = parseInt(choice, 10) - 1;
+      if (isNaN(idx) || idx < 0 || idx >= Math.min(5, matches.length)) return;
+      matches = [matches[idx]];
+    }
+    pk.playerId = matches[0].id;
+    save();
+    toast("Pick " + (i + 1) + " corrected: " + old.name + " → " + matches[0].name);
     render();
   }
 
@@ -734,11 +796,18 @@
             (inRound < 10 ? "0" : "") + inRound + "</span>" +
             "<span class='pos-badge pos-" + p.pos + "'>" + (p.pos === "DST" ? "DEF" : p.pos) + "</span> " +
             "<span>" + esc(p.name) + (pk.auto ? "<span class='keeper-tag'>KEEPER</span>" : "") + "</span>" +
-            "<span class='log-team'>" + esc(teamName(pk.team)) + "</span></div>"
+            "<span class='log-team'>" + esc(teamName(pk.team)) + "</span>" +
+            (pk.auto ? "" : "<button class='rm log-edit' data-i='" + i + "' title='Entered the wrong player? Swap this pick'>✎</button>") +
+            "</div>"
           );
         })
         .reverse()
         .join("") || "<div class='note'>No picks yet.</div>";
+      $$(".log-edit").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          fixPick(parseInt(btn.getAttribute("data-i"), 10));
+        });
+      });
       return;
     }
 
@@ -751,7 +820,7 @@
         var isMe = t === cfg.mySlot;
         var open = isMe || ui.openTeams[t];
         var head =
-          "<div class='team-head' data-team='" + t + "'>" +
+          "<div class='team-head' data-team='" + t + "' title='Click to expand · double-click to rename'>" +
           "<span>" + esc(teamName(t)) + (isMe ? " ⭐" : "") + "</span>" +
           "<span class='badge'>" + players.length + " picks " + (open ? "▾" : "▸") + "</span></div>";
         if (!open) {
@@ -792,6 +861,16 @@
         var t = parseInt(el.getAttribute("data-team"), 10);
         ui.openTeams[t] = !ui.openTeams[t];
         renderTeams();
+      });
+      el.addEventListener("dblclick", function () {
+        var t = parseInt(el.getAttribute("data-team"), 10);
+        var name = prompt("Team name:", teamName(t));
+        if (name && name.trim()) {
+          state.config.teamNames = state.config.teamNames || [];
+          state.config.teamNames[t] = name.trim();
+          save();
+          render();
+        }
       });
     });
   }
@@ -1021,6 +1100,10 @@
     });
     $("#tab-rosters").addEventListener("click", function () { ui.teamsTab = "rosters"; renderTeams(); });
     $("#tab-log").addEventListener("click", function () { ui.teamsTab = "log"; renderTeams(); });
+    $("#bot-toggle").addEventListener("change", function () {
+      botAdvance();
+      render();
+    });
 
     document.addEventListener("keydown", function (ev) {
       if (ev.key === "/" && document.activeElement !== $("#search")) {

@@ -35,8 +35,15 @@ free public endpoints.
      your next pick given the current board.
 3. **Enter picks fast** — press `/` to jump to search, type a few letters,
    press **Enter** to draft the top match to whichever team is on the clock.
-   Or click **Draft** on any row. **Undo** (or Ctrl/Cmd-Z) reverses mistakes.
-4. Everything autosaves to your browser — refresh or close the tab and hit
+   Or click **Draft** on any row. **Undo** (or Ctrl/Cmd-Z) reverses mistakes;
+   for a mis-entry you notice a few picks later, hit ✎ on that pick in the
+   Pick Log and swap in the right player without unwinding anything.
+   Double-click any team name in the sidebar to rename it mid-draft.
+4. **Practice first** — check **auto-pick others** in the top bar and the
+   other teams draft themselves at market price whenever it's not your turn.
+   Run a full rehearsal (keepers included) the night before; uncheck it (or
+   just don't check it) on the real draft day.
+5. Everything autosaves to your browser — refresh or close the tab and hit
    **Resume Saved Draft** to continue. **Export** downloads the full pick log
    as JSON.
 
