@@ -35,15 +35,24 @@ free public endpoints.
      your next pick given the current board.
 3. **Enter picks fast** — press `/` to jump to search, type a few letters,
    press **Enter** to draft the top match to whichever team is on the clock.
-   Or click **Draft** on any row. **Undo** (or Ctrl/Cmd-Z) reverses mistakes;
-   for a mis-entry you notice a few picks later, hit ✎ on that pick in the
-   Pick Log and swap in the right player without unwinding anything.
-   Double-click any team name in the sidebar to rename it mid-draft.
-4. **Practice first** — check **auto-pick others** in the top bar and the
+   Or click **Draft** on any row. **Undo** (or Ctrl/Cmd-Z) reverses mistakes.
+4. **Fix anything, any time** — live drafts get messy, so every kind of entry
+   error is correctable without starting over:
+   - **Wrong player on a pick** (any team's): ✎ on that pick in the Pick Log
+     swaps in the right player, later picks untouched.
+   - **Pick that never happened**: ✕ deletes it; every later pick shifts up
+     and re-attributes to the correct team automatically.
+   - **Missed a pick**: ＋ inserts it in place; everything after shifts down.
+   - **Keeper entered wrong** (wrong round, wrong player, late announcement):
+     the **Keepers** button in the top bar edits keepers mid-draft and the
+     board rebuilds around the change.
+   - **Team names**: ✎ next to any team in the sidebar (or double-click) —
+     handy since the draft order is usually announced minutes before pick 1.
+5. **Practice first** — check **auto-pick others** in the top bar and the
    other teams draft themselves at market price whenever it's not your turn.
    Run a full rehearsal (keepers included) the night before; uncheck it (or
    just don't check it) on the real draft day.
-5. Everything autosaves to your browser — refresh or close the tab and hit
+6. Everything autosaves to your browser — refresh or close the tab and hit
    **Resume Saved Draft** to continue. **Export** downloads the full pick log
    as JSON.
 
