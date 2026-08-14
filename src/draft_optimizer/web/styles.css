@@ -106,6 +106,12 @@ select, input[type="search"], input[type="text"], input[type="number"] {
 }
 .rec-card.waiting { background: var(--panel); border-color: var(--border); }
 .rec-label { font-size: 11px; letter-spacing: .12em; color: var(--accent); font-weight: 700; }
+.avatar { border-radius: 50%; object-fit: cover; background: var(--panel-2); flex: none; vertical-align: middle; }
+.rec-player { display: flex; gap: 14px; align-items: center; margin: 6px 0 4px; }
+.rec-player .avatar { width: 64px; height: 64px; border: 2px solid var(--accent); }
+.rec-player .rec-name { margin: 0; }
+.pcell { display: inline-flex; align-items: center; gap: 8px; }
+.pool-table .avatar { width: 26px; height: 26px; }
 .rec-name { font-size: 24px; font-weight: 800; margin: 4px 0 2px; }
 .rec-meta { color: var(--muted); font-size: 13px; margin-bottom: 10px; }
 .rec-reasons { margin: 0 0 14px; padding-left: 18px; font-size: 13px; }

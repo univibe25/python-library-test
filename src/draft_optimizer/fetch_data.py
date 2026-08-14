@@ -22,10 +22,15 @@ import sys
 import time
 import unicodedata
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timezone
 from pathlib import Path
 
 DATA_DIR = Path(__file__).parent / "web" / "data"
+IMG_PLAYERS_DIR = Path(__file__).parent / "web" / "img" / "players"
+IMG_TEAMS_DIR = Path(__file__).parent / "web" / "img" / "teams"
+HEADSHOT_URL = "https://sleepercdn.com/content/nfl/players/thumb/{sid}.jpg"
+TEAM_LOGO_URL = "https://sleepercdn.com/images/team_logos/nfl/{team}.png"
 USER_AGENT = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/126.0 Safari/537.36"
@@ -151,6 +156,9 @@ def fetch_sleeper_projections(year: int) -> dict[tuple[str, str], dict]:
             "points": {s: stats.get(SLEEPER_PTS[s]) for s in SCORING_FORMATS},
             "adp": {s: stats.get(SLEEPER_ADP[s]) for s in SCORING_FORMATS},
             "injury": player.get("injury_status") or None,
+            # Sleeper player id — headshots live at
+            # sleepercdn.com/content/nfl/players/thumb/{sid}.jpg
+            "sid": row.get("player_id"),
             # Projected passing TDs, kept so leagues that score them at 6
             # (instead of the standard 4) can re-value QBs client-side.
             "pass_td": stats.get("pass_td") if pos == "QB" else None,
@@ -186,6 +194,45 @@ def fetch_adp(scoring: str, teams: int, year: int) -> dict[tuple[str, str], dict
     return out
 
 
+def _download_binary(url: str, dest: Path) -> str:
+    """Download url to dest unless already cached. Returns cached/ok/fail."""
+    if dest.exists() and dest.stat().st_size > 0:
+        return "cached"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = resp.read()
+        dest.write_bytes(data)
+        return "ok"
+    except Exception:  # noqa: BLE001 - a missing photo is not fatal
+        return "fail"
+
+
+def download_images(all_formats: list[dict], max_rank: int = 300) -> None:
+    """Cache headshots (top players) and team logos locally so the app's
+    photos work offline on draft day. Skips files already downloaded."""
+    IMG_PLAYERS_DIR.mkdir(parents=True, exist_ok=True)
+    IMG_TEAMS_DIR.mkdir(parents=True, exist_ok=True)
+    jobs: list[tuple[str, Path]] = []
+    seen_sids: set = set()
+    seen_teams: set = set()
+    for data in all_formats:
+        for p in data["players"]:
+            team = (p.get("team") or "").lower()
+            if team and team not in seen_teams:
+                seen_teams.add(team)
+                jobs.append((TEAM_LOGO_URL.format(team=team), IMG_TEAMS_DIR / f"{team}.png"))
+            sid = p.get("sid")
+            if sid and p["pos"] != "DST" and p["rank"] <= max_rank and sid not in seen_sids:
+                seen_sids.add(sid)
+                jobs.append((HEADSHOT_URL.format(sid=sid), IMG_PLAYERS_DIR / f"{sid}.jpg"))
+    print(f"caching {len(jobs)} images (players ranked top {max_rank} + team logos)...")
+    with ThreadPoolExecutor(max_workers=10) as pool:
+        results = list(pool.map(lambda j: _download_binary(*j), jobs))
+    print(f"  {results.count('ok')} downloaded, {results.count('cached')} already cached, "
+          f"{results.count('fail')} unavailable")
+
+
 def season_year(today: date | None = None) -> int:
     """The NFL season a draft happening today belongs to (season starts in September)."""
     today = today or date.today()
@@ -216,7 +263,9 @@ def build_format(scoring: str, year: int, projections: dict[tuple[str, str], dic
         entry["sleeper_adp"] = None
         entry["injury"] = None
         entry["pass_td"] = None
+        entry["sid"] = None
         if sleeper:
+            entry["sid"] = sleeper.get("sid")
             pts = sleeper["points"].get(scoring)
             entry["points"] = round(pts, 1) if pts is not None else None
             entry["sleeper_adp"] = sleeper["adp"].get(scoring)
@@ -258,11 +307,14 @@ def main(argv: list[str] | None = None) -> int:
     print(f"fetching Sleeper {year} season projections...")
     projections = fetch_sleeper_projections(year)
     print(f"  {len(projections)} players with projections")
+    built = []
     for scoring in formats:
         data = build_format(scoring, year, projections)
         out_path = DATA_DIR / f"players-{scoring}.json"
         out_path.write_text(json.dumps(data, separators=(",", ":")) + "\n")
         print(f"[{scoring}] wrote {out_path}")
+        built.append(data)
+    download_images(built)
     return 0
 
 

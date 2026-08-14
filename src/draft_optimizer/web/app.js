@@ -34,6 +34,27 @@
     });
   }
 
+  // Player headshot (or team logo for defenses): local cache first, Sleeper
+  // CDN as fallback, hidden if neither has a photo.
+  function avatarHtml(p, size) {
+    var local, cdn;
+    if (p.pos === "DST") {
+      var team = (p.team || "").toLowerCase();
+      if (!team) return "";
+      local = "img/teams/" + team + ".png";
+      cdn = "https://sleepercdn.com/images/team_logos/nfl/" + team + ".png";
+    } else {
+      if (!p.sid) return "";
+      local = "img/players/" + p.sid + ".jpg";
+      cdn = "https://sleepercdn.com/content/nfl/players/thumb/" + p.sid + ".jpg";
+    }
+    return (
+      "<img class='avatar' loading='lazy' width='" + size + "' height='" + size +
+      "' src='" + local + "' data-cdn='" + cdn + "' alt='' " +
+      "onerror=\"if(!this.dataset.f){this.dataset.f=1;this.src=this.dataset.cdn}else{this.style.visibility='hidden'}\">"
+    );
+  }
+
   // ---------- data ----------
 
   function loadData(scoring) {
@@ -809,11 +830,12 @@
       "<div class='rec-label'>" +
       (mine ? "▶ PICK NOW" : "PLAN — YOUR PICK #" + (ctx.currentPick + 1)) +
       "</div>" +
-      "<div class='rec-name'>" + esc(p.name) + "</div>" +
+      "<div class='rec-player'>" + avatarHtml(p, 64) +
+      "<div><div class='rec-name'>" + esc(p.name) + "</div>" +
       "<div class='rec-meta'><span class='pos-badge pos-" + p.pos + "'>" + (p.pos === "DST" ? "DEF" : p.pos) + "</span> " +
       esc(p.team || "") + " · bye " + (p.bye || "?") + " · " + p.points + " proj pts · ADP " +
       (p.estAdp ? p.estAdp.toFixed(1) : "—") + (p.injury ? " · <span class='inj'>" + esc(p.injury) + "</span>" : "") +
-      "</div>" +
+      "</div></div></div>" +
       "<ul class='rec-reasons'>" +
       top.reasons.slice(0, 4).map(function (r) { return "<li>" + esc(r) + "</li>"; }).join("") +
       "</ul>" +
@@ -831,6 +853,7 @@
         return (
           "<div class='alt-row' data-id='" + q.id + "' title='" + esc(r.reasons.join(" · ")) + "'>" +
           "<span class='alt-score'>" + r.score.toFixed(0) + "</span>" +
+          avatarHtml(q, 26) +
           "<span class='pos-badge pos-" + q.pos + "'>" + (q.pos === "DST" ? "DEF" : q.pos) + "</span>" +
           "<span class='alt-name'>" + esc(q.name) +
           " <span class='alt-sub'>" + esc(q.team || "") + " · ADP " + (q.estAdp ? q.estAdp.toFixed(0) : "—") + "</span></span>" +
@@ -887,10 +910,11 @@
           "<tr class='" + cls + "' data-id='" + p.id + "'>" +
           "<td>" + (isDrafted || over ? "" : "<button class='pick-btn' data-id='" + p.id + "'>Draft</button>") + "</td>" +
           "<td>" + p.rank + "</td>" +
-          "<td><span class='pname'>" + esc(p.name) + "</span><span class='pteam'>" + esc(p.team || "") + "</span>" +
+          "<td><span class='pcell'>" + avatarHtml(p, 26) +
+          "<span class='pname'>" + esc(p.name) + "</span><span class='pteam'>" + esc(p.team || "") + "</span>" +
           (keeper ? "<span class='keeper-tag' title='Keeper — costs " + esc(teamName(keeper.team)) +
             "’s round-" + keeper.round + " pick'>KEPT</span>" : "") +
-          (p.injury ? "<span class='inj'>" + esc(p.injury.slice(0, 3)) + "</span>" : "") + "</td>" +
+          (p.injury ? "<span class='inj'>" + esc(p.injury.slice(0, 3)) + "</span>" : "") + "</span></td>" +
           "<td><span class='pos-badge pos-" + p.pos + "'>" + (p.pos === "DST" ? "DEF" : p.pos) + "</span></td>" +
           "<td>" + (p.bye || "—") + "</td>" +
           "<td>" + (p.points != null ? p.points.toFixed(0) + (p.pointsEstimated ? "*" : "") : "—") + "</td>" +
